@@ -8,6 +8,7 @@ import (
 
 type Server struct {
 	healthService *services.Health
+	coordService  *services.GeolocationService
 }
 
 func NewServer() *Server {
@@ -17,12 +18,14 @@ func NewServer() *Server {
 }
 
 func (s *Server) Start(port string) error {
-	// Servir archivos estáticos
+	// ANGULAR.JS
 	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./static/browser/"))))
 
 	// Endpoint de health check
 	http.HandleFunc("/health", s.healthHandler)
 
-	// Iniciar servidor
+	// Endpoint de CORE GEO CODER!!
+	http.HandleFunc("/getcoords/", s.getCoordsHandler)
+
 	return http.ListenAndServe(":"+port, nil)
 }
