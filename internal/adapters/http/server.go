@@ -9,12 +9,16 @@ import (
 type Server struct {
 	healthService *services.Health
 	coordService  *services.GeolocationService
+	reports       services.CoordsRequest
 }
 
 func NewServer() *Server {
-	return &Server{
+	s := &Server{
 		healthService: services.NewHealthService(),
+		coordService:  services.NewGeolocationService(),
+		reports:       services.CoordsRequest{}, // Buffer para reportes
 	}
+	return s
 }
 
 func (s *Server) Start(port string) error {
@@ -25,7 +29,10 @@ func (s *Server) Start(port string) error {
 	http.HandleFunc("/health", s.healthHandler)
 
 	// Endpoint de CORE GEO CODER!!
-	http.HandleFunc("/getcoords/", s.getCoordsHandler)
+	http.HandleFunc("/getcoords_bak/", s.getCoordsHandler)
+
+	http.HandleFunc("/submitcoords", s.submitCoordsHandler) // POST para enviar el reporte
+	http.HandleFunc("/getcoords/", s.getCoordsHandler)      // SSE para resultados
 
 	return http.ListenAndServe(":"+port, nil)
 }

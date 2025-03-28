@@ -13,6 +13,14 @@ type CoordsRequest struct {
 	Values  map[string][]string `json:"values"`
 }
 
+type CoordsResponse struct {
+	Address string  `json:"address"`
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
+	Origin  string  `json:"origin"`
+	Format  string  `json:"format"`
+}
+
 type GeolocationService struct {
 	geocoders []geocoders.Geocoder
 }
@@ -29,11 +37,9 @@ func NewGeolocationService() *GeolocationService {
 }
 
 func (s *GeolocationService) GetCoordsFromAddress(address string) (domain.Geolocation, error) {
-	//Aqui se debe incorporar el maestro callejero
 	formattedAddress := formatAddress(address)
 
 	for _, geocoder := range s.geocoders {
-		//ACA itera por la cantidad de geo coders, ojo aqui!!
 		result, err := geocoder.Geocode(formattedAddress)
 		if err == nil && result != nil {
 			return *result, nil
