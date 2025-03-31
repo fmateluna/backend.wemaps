@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"wemaps/internal/domain"
 	"wemaps/internal/infrastructure/geocoders"
 	"wemaps/internal/services"
 )
@@ -46,26 +47,30 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 			geolocationService := geocoders.NewNominatimGeocoder()
 			geo, err := geolocationService.Geocode(address)
 			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\": \"Error geolocalizando %s: %v\"}\n\n", address, err)
+				geo := domain.Geolocation{}
+				geo.OriginAddress = address
+				geo.FormattedAddress = (address)
+				geo.Latitude = 0
+				geo.Longitude = 0
+				geo.Geocoder = "Sin Información : " + err.Error()
+				data, _ := json.Marshal(geo)
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
 				flusher.Flush()
 				continue
 			}
 			geo.OriginAddress = address
-
-			// Intentar serializar a JSON
+			geo.FormattedAddress = (geo.FormattedAddress)
 			data, err := json.Marshal(geo)
+
 			if err != nil {
-				// Si falla, construir una representación alternativa
-				fallbackData := fmt.Sprintf(
-					`{"origin_address": %q, "formatted_address": %q, "latitude": %f, "longitude": %f, "geocoder": %q, "marshal_error": %q}`,
-					sanitizeString(geo.OriginAddress),
-					sanitizeString(geo.FormattedAddress),
-					geo.Latitude,
-					geo.Longitude,
-					sanitizeString(geo.Geocoder),
-					err.Error(),
-				)
-				fmt.Fprintf(w, "data: %s\n\n", fallbackData)
+				geo.FormattedAddress = (address)
+				geo.OriginAddress = address
+				geo.Latitude = 0
+				geo.Longitude = 0
+				geo.Geocoder = "Sin Información : " + err.Error()
+				data, _ := json.Marshal(geo)
+				fmt.Fprintf(w, "data: %s\n\n", data)
 				flusher.Flush()
 				continue
 			}
