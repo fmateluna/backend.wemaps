@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"strings"
 	"wemaps/internal/domain"
-	"wemaps/internal/infrastructure/geocoders"
 	"wemaps/internal/services"
 )
 
 func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")                            // Permitir todos los orígenes
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")          // Métodos permitidos
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization") // Headers permitidos
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Error reading request body", http.StatusInternalServerError)
@@ -30,6 +32,9 @@ func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")                            // Permitir todos los orígenes
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")          // Métodos permitidos
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization") // Headers permitidos
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -40,14 +45,29 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	geolocationService := s.coordService
+
 	if len(s.reports.Columns) > 0 {
 		key := s.reports.Columns[0]
 		values := s.reports.Values[key]
-		for _, address := range values {
-			geolocationService := geocoders.NewNominatimGeocoder()
-			geo, err := geolocationService.Geocode(address)
+		nok := 0
+		ok := 0
+		for index, address := range values {
+
+			geo, err := geolocationService.GetCoordsFromAddress(address)
+
+			status := domain.StatusGeoResult{}
+			status.Count = index + 1
+			status.Total = len(values)
+			status.Ok = ok
+			status.Nok = nok
+			status.Result = (err == nil)
+
 			if err != nil {
 				geo := domain.Geolocation{}
+				nok++
+				status.Nok = nok
+				geo.Status = status
 				geo.OriginAddress = address
 				geo.FormattedAddress = (address)
 				geo.Latitude = 0
@@ -56,29 +76,17 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 				data, _ := json.Marshal(geo)
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				flusher.Flush()
-				flusher.Flush()
 				continue
-			}
-			geo.OriginAddress = address
-			geo.FormattedAddress = (geo.FormattedAddress)
-			data, err := json.Marshal(geo)
-
-			if err != nil {
-				geo.FormattedAddress = (address)
+			} else {
 				geo.OriginAddress = address
-				geo.Latitude = 0
-				geo.Longitude = 0
-				geo.Geocoder = "Sin Información : " + err.Error()
+				ok = ok + 1
+				geo.Status.Ok = ok
+				geo.Status = status
 				data, _ := json.Marshal(geo)
-				fmt.Fprintf(w, "data: %s\n\n", data)
-				flusher.Flush()
-				continue
-			}
-
-			// Enviar el evento SSE normalmente si la serialización funciona
-			_, err = fmt.Fprintf(w, "data: %s\n\n", data)
-			if err != nil {
-				return
+				_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+				if err != nil {
+					return
+				}
 			}
 			flusher.Flush()
 		}
@@ -102,37 +110,4 @@ func sanitizeString(s string) string {
 		}
 	}
 	return sb.String()
-}
-
-func (s *Server) getCoordsHandlerX(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	if len(s.reports.Columns) > 0 {
-		key := s.reports.Columns[0]
-		values := s.reports.Values[key]
-		for _, address := range values {
-			//geolocationService := services.NewGeolocationService()
-			//geo, err := geolocationService.GetCoordsFromAddress(address)
-
-			geolocationService := geocoders.NewNominatimGeocoder()
-			geo, err := geolocationService.Geocode(address)
-			geo.OriginAddress = address
-			if err != nil {
-				fmt.Printf("Error geolocalizando %s: %v\n", address, err)
-				continue
-			}
-			data, _ := json.Marshal(geo)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
-		}
-	}
-	fmt.Fprintf(w, "data: {\"status\": \"done\"}\n\n")
-	flusher.Flush()
 }

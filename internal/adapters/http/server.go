@@ -26,13 +26,10 @@ func (s *Server) Start(port string) error {
 	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./static/browser/"))))
 
 	// Endpoint de health check
-	http.HandleFunc("/health", s.healthHandler)
+	http.HandleFunc("/api/health", s.healthHandler)
 
-	// Endpoint de CORE GEO CODER!!
-	http.HandleFunc("/getcoords_bak/", s.getCoordsHandler)
-
-	http.HandleFunc("/submitcoords", s.submitCoordsHandler) // POST para enviar el reporte
-	http.HandleFunc("/getcoords/", s.getCoordsHandler)      // SSE para resultados
+	http.HandleFunc("/api/submitcoords", s.submitCoordsHandler) // POST para enviar el reporte
+	http.HandleFunc("/api/getcoords/", s.getCoordsHandler)      // SSE para resultados
 
 	return http.ListenAndServe(":"+port, nil)
 }

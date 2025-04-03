@@ -47,23 +47,21 @@ func (n *NominatimGeocoder) Geocode(address string) (*domain.Geolocation, error)
 	}
 
 	result := data[0]
-	/*
-		category, ok := result["type"].(string)
-		if !ok {
-			return nil, fmt.Errorf("no se pudo determinar la categoría del resultado")
-		}
 
+	category, ok := result["type"].(string)
+	if !ok {
+		return nil, fmt.Errorf("no se pudo determinar la categoría del resultado")
+	}
 
-		exactCategories := map[string]bool{
-			"building": true,
-			"place":    true,
-		}
+	exactCategories := map[string]bool{
+		"building": true,
+		"place":    true,
+	}
 
+	if !exactCategories[category] {
+		return nil, ErrNotExact
+	}
 
-		if !exactCategories[category] {
-			return nil, ErrNotExact
-		}
-	*/
 	lat, err := strconv.ParseFloat(result["lat"].(string), 64)
 	if err != nil {
 		return nil, fmt.Errorf("error al parsear latitud: %v", err)
