@@ -65,8 +65,6 @@ func (s *GeolocationService) GetCoordsFromAddress(address string) (domain.Geoloc
 		if err == nil && result != nil {
 			s.saveToCache(formattedAddress, *result)
 			return *result, nil
-		} else {
-			s.saveToCache(formattedAddress, domain.Geolocation{})
 		}
 	}
 
