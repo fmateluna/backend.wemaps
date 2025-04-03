@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -11,7 +12,6 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 )
 
-// CoordsRequest ya debe existir en tu código, lo reutilizamos
 type CoordsRequest struct {
 	Columns []string            `json:"columns"`
 	Values  map[string][]string `json:"values"`
@@ -38,7 +38,8 @@ type GeolocationService struct {
 }
 
 func NewGeolocationService() *GeolocationService {
-	cache, _ := lru.New(1000) // Máximo de 1000 entradas
+	cache, _ := lru.New(1000)
+	fmt.Println(" Máximo de 1000 entradas")
 
 	return &GeolocationService{
 		geocoders: []geocoders.Geocoder{
@@ -46,19 +47,19 @@ func NewGeolocationService() *GeolocationService {
 			geocoders.NewGoogleGeocoder(),
 		},
 		cache: cache,
-		ttl:   30 * 24 * time.Hour, // 30 días
+		ttl:   30 * 24 * time.Hour,
 	}
 }
 
 func (s *GeolocationService) GetCoordsFromAddress(address string) (domain.Geolocation, error) {
 	formattedAddress := formatAddress(address)
 
-	// Primero verificamos la caché
+	fmt.Println("Primero verificamos la caché")
 	if result, exist := s.getFromCache(formattedAddress); exist {
 		return result, nil
 	}
 
-	// Si no está en caché, intentamos con los geocodificadores
+	fmt.Println(" Si no está en caché, intentamos con los geocodificadores")
 	for _, geocoder := range s.geocoders {
 		result, err := geocoder.Geocode(formattedAddress)
 
@@ -87,9 +88,10 @@ func (s *GeolocationService) getFromCache(formattedAddress string) (domain.Geolo
 
 	entry := value.(cacheEntry)
 
-	// Si la entrada ha expirado, no la devolvemos
+	fmt.Println(" Si la entrada ha expirado, no la devolvemos")
 	if time.Since(entry.timestamp) >= s.ttl {
-		s.cache.Remove(formattedAddress) // Eliminamos la entrada
+		s.cache.Remove(formattedAddress)
+		fmt.Println(" Eliminamos la entrada")
 		return domain.Geolocation{}, false
 	}
 
