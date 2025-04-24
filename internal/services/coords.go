@@ -39,7 +39,6 @@ type GeolocationService struct {
 
 func NewGeolocationService() *GeolocationService {
 	cache, _ := lru.New(1000)
-	fmt.Println(" Máximo de 1000 entradas")
 
 	return &GeolocationService{
 		geocoders: []geocoders.Geocoder{
