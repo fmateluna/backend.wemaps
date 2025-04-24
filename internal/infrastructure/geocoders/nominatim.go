@@ -56,6 +56,7 @@ func (n *NominatimGeocoder) Geocode(address string) (*domain.Geolocation, error)
 	exactCategories := map[string]bool{
 		"building": true,
 		"place":    true,
+		"house":    true,
 	}
 
 	if !exactCategories[category] {
