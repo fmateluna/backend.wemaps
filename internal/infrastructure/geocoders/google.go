@@ -60,7 +60,7 @@ func (g *GoogleGeocoder) Geocode(address string) (*domain.Geolocation, error) {
 		}
 
 		// Verificar si el location_type es válido GEOMETRIC_CENTER si no tiene numero
-		if locationType == "ROOFTOP" || locationType == "RANGE_INTERPOLATED" {
+		if locationType == "ROOFTOP" || locationType == "RANGE_INTERPOLATED" || locationType == "APPROXIMATE" {
 			location, ok := geometry["location"].(map[string]interface{})
 			if !ok {
 				continue
