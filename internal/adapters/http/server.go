@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 
+	"wemaps/internal/ports"
 	"wemaps/internal/services"
 )
 
@@ -12,10 +13,10 @@ type Server struct {
 	reports       services.CoordsRequest
 }
 
-func NewServer() *Server {
+func NewServer(repo ports.GeolocationRepository) *Server {
 	s := &Server{
 		healthService: services.NewHealthService(),
-		coordService:  services.NewGeolocationService(),
+		coordService:  services.NewGeolocationService(repo),
 		reports:       services.CoordsRequest{}, // Buffer para reportes
 	}
 	return s

@@ -1,15 +1,12 @@
 package services
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"strings"
-	"sync"
-	"time"
 	"wemaps/internal/domain"
 	"wemaps/internal/infrastructure/geocoders"
-
-	lru "github.com/hashicorp/golang-lru"
+	"wemaps/internal/ports"
 )
 
 type CoordsRequest struct {
@@ -25,76 +22,47 @@ type CoordsResponse struct {
 	Format  string  `json:"format"`
 }
 
-type cacheEntry struct {
-	geolocation domain.Geolocation
-	timestamp   time.Time
-}
-
 type GeolocationService struct {
-	geocoders []geocoders.Geocoder
-	cache     *lru.Cache
-	ttl       time.Duration
-	mutex     sync.RWMutex
+	geocoders  []geocoders.Geocoder
+	repository ports.GeolocationRepository
 }
 
-func NewGeolocationService() *GeolocationService {
-	cache, _ := lru.New(1000)
-
+func NewGeolocationService(repo ports.GeolocationRepository) *GeolocationService {
 	return &GeolocationService{
 		geocoders: []geocoders.Geocoder{
 			geocoders.NewNominatimGeocoder(),
 			geocoders.NewGoogleGeocoder(),
 		},
-		cache: cache,
-		ttl:   30 * 24 * time.Hour,
+		repository: repo,
 	}
 }
 
 func (s *GeolocationService) GetCoordsFromAddress(address string) (domain.Geolocation, error) {
 	formattedAddress := formatAddress(address)
 
-	fmt.Println("Primero verificamos la caché")
-	if result, exist := s.getFromCache(formattedAddress); exist {
+	// Consultar en MongoDB primero
+	result, exists, err := s.repository.Get(context.Background(), formattedAddress)
+	if err != nil {
+		return domain.Geolocation{}, err
+	}
+	if exists {
 		return result, nil
 	}
 
-	fmt.Println(" Si no está en caché, intentamos con los geocodificadores")
+	// Si no está en MongoDB, consultar los geocodificadores
 	for _, geocoder := range s.geocoders {
-		result, err := geocoder.Geocode(formattedAddress)
-
-		if err == nil && result != nil {
-			s.saveToCache(formattedAddress, *result)
-			return *result, nil
+		addressCoords, err := geocoder.Geocode(formattedAddress)
+		if err == nil && addressCoords != nil {
+			addressCoords.OriginAddress = address
+			// Guardar en MongoDB
+			if err := s.repository.Save(context.Background(), formattedAddress, *addressCoords); err != nil {
+				return domain.Geolocation{}, err
+			}
+			return *addressCoords, nil
 		}
 	}
 
 	return domain.Geolocation{}, errors.New("no se pudo geolocalizar la dirección")
-}
-
-func (s *GeolocationService) saveToCache(formattedAddress string, result domain.Geolocation) {
-	entry := cacheEntry{
-		geolocation: result,
-		timestamp:   time.Now(),
-	}
-	s.cache.Add(formattedAddress, entry)
-}
-
-func (s *GeolocationService) getFromCache(formattedAddress string) (domain.Geolocation, bool) {
-	value, exists := s.cache.Get(formattedAddress)
-	if !exists {
-		return domain.Geolocation{}, false
-	}
-
-	entry := value.(cacheEntry)
-
-	fmt.Println(" Si la entrada ha expirado, no la devolvemos")
-	if time.Since(entry.timestamp) >= s.ttl {
-		s.cache.Remove(formattedAddress)
-		fmt.Println(" Eliminamos la entrada")
-		return domain.Geolocation{}, false
-	}
-
-	return entry.geolocation, true
 }
 
 func formatAddress(address string) string {

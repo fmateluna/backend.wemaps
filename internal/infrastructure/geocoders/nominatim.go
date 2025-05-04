@@ -72,11 +72,20 @@ func (n *NominatimGeocoder) Geocode(address string) (*domain.Geolocation, error)
 		return nil, fmt.Errorf("error al parsear longitud: %v", err)
 	}
 
-	// Devolver el resultado exacto
+	responseCoordsApiJSON, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling response into JSON: %w", err)
+	}
+
+	var responseCoordsApi []interface{}
+	if err := json.Unmarshal(responseCoordsApiJSON, &responseCoordsApi); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response JSON: %w", err)
+	}
 	return &domain.Geolocation{
-		FormattedAddress: result["display_name"].(string),
-		Latitude:         lat,
-		Longitude:        lon,
-		Geocoder:         "nominatim",
+		FormattedAddress:  result["display_name"].(string),
+		Latitude:          lat,
+		Longitude:         lon,
+		Geocoder:          "nominatim",
+		ResponseCoordsApi: responseCoordsApi,
 	}, nil
 }
