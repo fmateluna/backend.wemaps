@@ -74,21 +74,12 @@ func (g *GoogleGeocoder) Geocode(address string) (*domain.Geolocation, error) {
 				continue
 			}
 
-			responseCoordsApiJSON, err := json.Marshal(data)
-			if err != nil {
-				return nil, fmt.Errorf("error marshaling response into JSON: %w", err)
-			}
-
-			var responseCoordsApi []interface{}
-			if err := json.Unmarshal(responseCoordsApiJSON, &responseCoordsApi); err != nil {
-				return nil, fmt.Errorf("error unmarshaling response JSON: %w", err)
-			}
 			return &domain.Geolocation{
 				FormattedAddress:  result["formatted_address"].(string),
 				Latitude:          lat,
 				Longitude:         lng,
 				Geocoder:          "google",
-				ResponseCoordsApi: responseCoordsApi,
+				ResponseCoordsApi: results,
 			}, nil
 		}
 	}
