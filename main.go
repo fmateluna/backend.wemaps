@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -20,7 +21,7 @@ func main() {
 	flag.StringVar(&httpsConfigPath, "https", "", "Ruta al archivo JSON con configuración TLS (cert y key)")
 	flag.Parse()
 
-	port := "80"
+	port := cmp.Or(os.Getenv("PORT"), "80")
 	var certFile, keyFile string
 
 	// Si se pasa el flag -https, leer el archivo JSON
@@ -40,7 +41,6 @@ func main() {
 
 		certFile = tlsConfig.CertFile
 		keyFile = tlsConfig.KeyFile
-		port = "443"
 	}
 
 	repo := repository.NewMongoDBRepository()
