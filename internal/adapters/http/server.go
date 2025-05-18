@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 
 	"wemaps/internal/ports"
@@ -22,15 +23,24 @@ func NewServer(repo ports.GeolocationRepository) *Server {
 	return s
 }
 
-func (s *Server) Start(port string) error {
-	// ANGULAR.JS
-	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./static/browser/"))))
+func (s *Server) StartServer(port, certFile, keyFile string) error {
+	mux := http.NewServeMux()
 
-	// Endpoint de health check
-	http.HandleFunc("/api/health", s.healthHandler)
+	// Angular estático
+	mux.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./static/browser/"))))
 
-	http.HandleFunc("/api/submitcoords", s.submitCoordsHandler) // POST para enviar el reporte
-	http.HandleFunc("/api/getcoords/", s.getCoordsHandler)      // SSE para resultados
+	// Endpoints API
+	mux.HandleFunc("/api/health", s.healthHandler)
+	mux.HandleFunc("/api/submitcoords", s.submitCoordsHandler)
+	mux.HandleFunc("/api/getcoords/", s.getCoordsHandler)
 
-	return http.ListenAndServe(":"+port, nil)
+	addr := ":" + port
+
+	if certFile != "" && keyFile != "" {
+		fmt.Println("Servidor HTTPS escuchando en puerto", port)
+		return http.ListenAndServeTLS(addr, certFile, keyFile, mux)
+	}
+
+	fmt.Println("Servidor HTTP escuchando en puerto", port)
+	return http.ListenAndServe(addr, mux)
 }

@@ -2,23 +2,52 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"wemaps/internal/adapters/http"
 	"wemaps/internal/infrastructure/repository"
-
-	"cmp"
 )
 
+type TLSConfig struct {
+	CertFile string `json:"certFile"`
+	KeyFile  string `json:"keyFile"`
+}
+
 func main() {
-	port := cmp.Or(os.Getenv("PORT"), "80")
+	var httpsConfigPath string
+	flag.StringVar(&httpsConfigPath, "https", "", "Ruta al archivo JSON con configuración TLS (cert y key)")
+	flag.Parse()
+
+	port := "80"
+	var certFile, keyFile string
+
+	// Si se pasa el flag -https, leer el archivo JSON
+	if httpsConfigPath != "" {
+		file, err := os.Open(httpsConfigPath)
+		if err != nil {
+			fmt.Printf("Error abriendo archivo de configuración HTTPS: %v\n", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+
+		var tlsConfig TLSConfig
+		if err := json.NewDecoder(file).Decode(&tlsConfig); err != nil {
+			fmt.Printf("Error decodificando archivo JSON: %v\n", err)
+			os.Exit(1)
+		}
+
+		certFile = tlsConfig.CertFile
+		keyFile = tlsConfig.KeyFile
+		port = "443"
+	}
 
 	repo := repository.NewMongoDBRepository()
 	if repo == nil {
 		fmt.Println("Error: No se pudo inicializar el repositorio MongoDB")
 		os.Exit(1)
 	}
-
 	defer func() {
 		if err := repo.Close(context.Background()); err != nil {
 			fmt.Printf("Error desconectando de MongoDB: %v\n", err)
@@ -26,9 +55,9 @@ func main() {
 	}()
 
 	httpServer := http.NewServer(repo)
-	err := httpServer.Start(port)
-	if err != nil {
-		fmt.Printf("Error iniciando servidor HTTP: %v\n", err)
+
+	if err := httpServer.StartServer(port, certFile, keyFile); err != nil {
+		fmt.Printf("Error iniciando servidor: %v\n", err)
 		os.Exit(1)
 	}
 }
