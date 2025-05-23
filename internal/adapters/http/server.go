@@ -23,11 +23,26 @@ func NewServer(repo ports.GeolocationRepository) *Server {
 	return s
 }
 
+func fileServerWithHeaders(fs http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// ⚠️ No usar esto si quieres que funcione `signInWithPopup`
+		//w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		//w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+
+		// Otras cabeceras que sí puedes mantener
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Cache-Control", "no-cache")
+
+		fs.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) StartServer(port, certFile, keyFile string) error {
 	mux := http.NewServeMux()
 
 	// Angular estático
-	mux.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./static/browser/"))))
+	fs := http.FileServer(http.Dir("./static/browser/"))
+	mux.Handle("/", fileServerWithHeaders(fs))
 
 	// Endpoints API
 	mux.HandleFunc("/api/health", s.healthHandler)

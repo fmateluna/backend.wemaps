@@ -35,6 +35,9 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")                            // Permitir todos los orígenes
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")          // Métodos permitidos
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization") // Headers permitidos
+	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
