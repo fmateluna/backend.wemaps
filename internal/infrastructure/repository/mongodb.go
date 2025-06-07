@@ -17,10 +17,10 @@ type MongoDBRepository struct {
 	collection *mongo.Collection
 }
 
-func NewMongoDBRepository() *MongoDBRepository {
+func NewMongoDBRepository() (*MongoDBRepository, error) {
 	mongoURI := os.Getenv("MONGODB_URI")
 	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017"
+		mongoURI = "mongodb://admin:SanuWeMapsJ4#@54.156.84.208:27017"
 		log.Println("MONGODB_URI no configurado, usando valor por defecto: mongodb://localhost:27017")
 	}
 
@@ -46,6 +46,7 @@ func NewMongoDBRepository() *MongoDBRepository {
 	client, err := mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
 		log.Fatalf("Error conectando a MongoDB: %v", err)
+		return nil, err
 	}
 
 	// Verificar conexión
@@ -53,6 +54,7 @@ func NewMongoDBRepository() *MongoDBRepository {
 	defer cancel()
 	if err := client.Ping(ctx, nil); err != nil {
 		log.Fatalf("Error verificando conexión a MongoDB: %v", err)
+		return nil, err
 	}
 	log.Println("Conexión a MongoDB establecida")
 
@@ -67,12 +69,13 @@ func NewMongoDBRepository() *MongoDBRepository {
 	_, err = coll.Indexes().CreateOne(context.Background(), indexModel)
 	if err != nil {
 		log.Fatalf("Error creando índice en address: %v", err)
+		return nil, err
 	}
 
 	return &MongoDBRepository{
 		client:     client,
 		collection: coll,
-	}
+	}, nil
 }
 
 type AddressCollection struct {

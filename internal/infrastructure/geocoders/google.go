@@ -14,7 +14,12 @@ type GoogleGeocoder struct {
 }
 
 func NewGoogleGeocoder() *GoogleGeocoder {
-	return &GoogleGeocoder{apiKey: os.Getenv("GOOGLE_API_KEY")}
+	if os.Getenv("GOOGLE_API_KEY") == "" {
+		fmt.Print("Api de google setea")
+		return &GoogleGeocoder{apiKey: "NO EXISTE GOOGLE API KEY"}
+	} else {
+		return &GoogleGeocoder{apiKey: os.Getenv("GOOGLE_API_KEY")}
+	}
 }
 
 func (g *GoogleGeocoder) Geocode(address string) (*domain.Geolocation, error) {

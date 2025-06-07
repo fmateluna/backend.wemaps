@@ -43,3 +43,12 @@ Response :
     }
 }
 
+
+TODO :
+- OpenCage: https://opencagedata.com/
+- Geoapify: https://www.geoapify.com/tools/geocoding-online/⁠
+- ⁠Geocodio: https://www.geocod.io/features/spreadsheet/
+- ⁠Precisely: https://www.precisely.com/solution/geo-addressing-spatial-analytics
+- ⁠BarchGeo: https://batchgeo.com/pricing/
+- ⁠LocationIQ: https://es.locationiq.com/geocoding
+- Marker: https://markergo.com/geocoding/

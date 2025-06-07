@@ -11,25 +11,23 @@ import (
 type Server struct {
 	healthService *services.Health
 	coordService  *services.GeolocationService
+	portalService *services.PortalService
 	reports       services.CoordsRequest
 }
 
-func NewServer(repo ports.GeolocationRepository) *Server {
+func NewServer(repoAddress ports.GeolocationRepository, portalRepo ports.PortalRepository) *Server {
 	s := &Server{
 		healthService: services.NewHealthService(),
-		coordService:  services.NewGeolocationService(repo),
-		reports:       services.CoordsRequest{}, // Buffer para reportes
+		coordService:  services.NewGeolocationService(repoAddress),
+		portalService: services.NewPortalService(portalRepo),
+		reports:       services.CoordsRequest{},
 	}
 	return s
 }
 
 func fileServerWithHeaders(fs http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// ⚠️ No usar esto si quieres que funcione `signInWithPopup`
-		//w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-		//w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
 
-		// Otras cabeceras que sí puedes mantener
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Cache-Control", "no-cache")
 
@@ -48,6 +46,9 @@ func (s *Server) StartServer(port, certFile, keyFile string) error {
 	mux.HandleFunc("/api/health", s.healthHandler)
 	mux.HandleFunc("/api/submitcoords", s.submitCoordsHandler)
 	mux.HandleFunc("/api/getcoords/", s.getCoordsHandler)
+
+	//login
+	mux.HandleFunc("/api/login", s.loginHandler)
 
 	addr := ":" + port
 

@@ -43,18 +43,24 @@ func main() {
 		keyFile = tlsConfig.KeyFile
 	}
 
-	repo := repository.NewMongoDBRepository()
-	if repo == nil {
+	reporPortal, errorPostgress := repository.NewPostgresDBRepository()
+	if errorPostgress != nil {
+		fmt.Println("Error: No se pudo inicializar el repositorio Postgress")
+
+	}
+
+	repoAddress, errorMongo := repository.NewMongoDBRepository()
+	if errorMongo != nil {
 		fmt.Println("Error: No se pudo inicializar el repositorio MongoDB")
 		os.Exit(1)
 	}
 	defer func() {
-		if err := repo.Close(context.Background()); err != nil {
+		if err := repoAddress.Close(context.Background()); err != nil {
 			fmt.Printf("Error desconectando de MongoDB: %v\n", err)
 		}
 	}()
 
-	httpServer := http.NewServer(repo)
+	httpServer := http.NewServer(repoAddress, reporPortal)
 
 	if err := httpServer.StartServer(port, certFile, keyFile); err != nil {
 		fmt.Printf("Error iniciando servidor: %v\n", err)
