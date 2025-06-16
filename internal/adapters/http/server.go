@@ -13,6 +13,7 @@ type Server struct {
 	coordService  *services.GeolocationService
 	portalService *services.PortalService
 	reports       services.CoordsReportRequest
+	addressUnique []string
 }
 
 func NewServer(repoAddress ports.GeolocationRepository, portalRepo ports.PortalRepository) *Server {

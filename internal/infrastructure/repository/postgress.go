@@ -13,11 +13,11 @@ import (
 )
 
 type User struct {
-    ID       int    `json:"id"`
-    Email    string `json:"email"`
-    Alias    string `json:"alias"`
-    FullName string `json:"full_name"`
-    Phone    string `json:"phone"`
+	ID       int    `json:"id"`
+	Email    string `json:"email"`
+	Alias    string `json:"alias"`
+	FullName string `json:"full_name"`
+	Phone    string `json:"phone"`
 }
 
 type PortalRepository struct {
@@ -27,7 +27,7 @@ type PortalRepository struct {
 func NewPostgresDBRepository() (*PortalRepository, error) {
 	host := os.Getenv("POSTGRES_HOST")
 	if host == "" {
-		host = "localhost"
+		host = "54.156.84.208"
 		log.Println("POSTGRES_HOST no definido, usando 'localhost'")
 	}
 
@@ -39,13 +39,13 @@ func NewPostgresDBRepository() (*PortalRepository, error) {
 
 	user := os.Getenv("POSTGRES_USER")
 	if user == "" {
-		user = "postgres"
+		user = "pontupin"
 		log.Println("POSTGRES_USER no definido, usando 'postgres'")
 	}
 
 	password := os.Getenv("POSTGRES_PASSWORD")
 	if password == "" {
-		password = "postgres"
+		password = "iddqd"
 		log.Println("POSTGRES_PASSWORD no definido, usando valor por defecto")
 	}
 
@@ -79,28 +79,28 @@ func (db *PortalRepository) Close() error {
 }
 
 func (db *PortalRepository) FindUserByToken(token string) (*User, error) {
-    query := `
+	query := `
         SELECT u.id, u.email, u.alias, u.full_name, u.phone
         FROM sessions s
         JOIN users u ON s.user_id = u.id
         WHERE s.token = $1 AND s.is_active = true AND s.expires_at > CURRENT_TIMESTAMP
     `
-    var user User
-    err := db.QueryRow(query, token).Scan(
-        &user.ID,
-        &user.Email,
-        &user.Alias,
-        &user.FullName,
-        &user.Phone,
-    )
-    if err == sql.ErrNoRows {
-        return nil, fmt.Errorf("no active session found for token")
-    }
-    if err != nil {
-        log.Printf("error finding user by token: %v", err)
-        return nil, fmt.Errorf("error querying session: %v", err)
-    }
-    return &user, nil
+	var user User
+	err := db.QueryRow(query, token).Scan(
+		&user.ID,
+		&user.Email,
+		&user.Alias,
+		&user.FullName,
+		&user.Phone,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("no active session found for token")
+	}
+	if err != nil {
+		log.Printf("error finding user by token: %v", err)
+		return nil, fmt.Errorf("error querying session: %v", err)
+	}
+	return &user, nil
 }
 
 func (db *PortalRepository) GetUserID(alias string) (int, error) {
@@ -147,11 +147,11 @@ func (db *PortalRepository) SaveAddress(idReport int, address string, latitude f
 	err := db.QueryRow(queryCheck, address).Scan(&addressID, &addressDB, &formatAddressDB)
 	if err == nil {
 		//Cuando hay un resultado de latitud y longitud, se actualiza la dirección
-		if (addressDB != address || formatAddressDB != formatAddress) {
+		if addressDB != address || formatAddressDB != formatAddress {
 			updateQuery := `UPDATE address SET address = $1, normalized_address = $2, latitude = $3, longitude = $4, geocoder = $5 WHERE id = $6`
-			_, err = db.Exec(updateQuery, address, formatAddress, latitude, longitude, geocoder, addressID);
-		}else{
-			_,err = db.SaveAddressInReport(idReport, addressID, latitude, longitude, formatAddress, geocoder)
+			_, err = db.Exec(updateQuery, address, formatAddress, latitude, longitude, geocoder, addressID)
+		} else {
+			_, err = db.SaveAddressInReport(idReport, addressID, latitude, longitude, formatAddress, geocoder)
 			if err != nil {
 				return addressID, fmt.Errorf("error linking existing address to report: %v", err)
 			}
@@ -170,7 +170,7 @@ func (db *PortalRepository) SaveAddress(idReport int, address string, latitude f
 	if err != nil {
 		log.Printf("error saving address: %v", err)
 		return 0, fmt.Errorf("error saving address: %v", err)
-	}	
+	}
 	return addressID, nil
 }
 
@@ -192,7 +192,7 @@ func (db *PortalRepository) SaveReportColumnByIdReport(idReport int, addressID i
 	for name, value := range infoReport {
 		query := `INSERT INTO report_column (report_id, id_address, name, value,index_column)
 				  VALUES ($1, $2, $3 , $4 , $5)`
-		result, err := db.Exec(query,  idReport, addressID,name, value, index)
+		result, err := db.Exec(query, idReport, addressID, name, value, index)
 		if err != nil {
 			log.Printf("error saving report column: %v", err)
 			return count, fmt.Errorf("error saving report column: %v", err)
@@ -230,65 +230,53 @@ func (db *PortalRepository) SaveReportByIdUser(idUser int, nameReport string, in
 func (db PortalRepository) GetAddressInfoByUserId(userID int) ([]dto.AddressReport, error) {
 	// Execute query
 	query := `
-		WITH AddressAttributes AS (
-			SELECT
-				ra.address_id,
-				jsonb_object_agg(rc.name, rc.value ORDER BY rc.name) AS atributos
-			FROM report_column rc
-			JOIN report r ON r.id = rc.report_id
-			JOIN report_address ra ON ra.report_id = r.id
-			WHERE r.author = $1
-			GROUP BY ra.address_id
-		),
-		AddressReport AS (
-			WITH DedupedReports AS (
-				SELECT DISTINCT
-					ra.address_id,
-					r.id AS report_id,
-					r.name AS report_name
-				FROM report r
-				JOIN report_address ra ON ra.report_id = r.id
-				WHERE r.author = $1
-			)
-			SELECT
-				address_id,
-				jsonb_agg(
-					jsonb_build_object(
-						'report_id', report_id,
-						'report_name', report_name
-					) ORDER BY report_id
-				) AS report_details
-			FROM DedupedReports
-			GROUP BY address_id
-			ORDER BY address_id
-		)
-		SELECT
-			a.address AS address,
+		SELECT 
+			a.address,
 			a.normalized_address,
 			a.latitude,
 			a.longitude,
-			jsonb_agg(
-				jsonb_build_object(
-					'report_id', ra.report_id,
-					'report_name', r.name,
-					'atributos', COALESCE(ra_attrs.atributos, '{}')
-				) ORDER BY ra.report_id
+			(
+				SELECT json_agg(attr_agg)
+				FROM (
+					SELECT json_build_object(
+						'atributos', json_object_agg(rc.name, rc.value)
+					) AS attr_agg
+					FROM public.report_address ra2
+					JOIN public.report_column rc ON rc.report_id = ra2.report_id
+					JOIN public.report r2 ON r2.id = ra2.report_id
+					WHERE ra2.address_id = a.id
+					AND r2.author = $1
+					GROUP BY rc.report_id
+				) AS sub_attr
 			) AS atributos_relacionados,
-			ar.report_details AS reportes
-		FROM address a
-		JOIN report_address ra ON ra.address_id = a.id
-		JOIN report r ON r.id = ra.report_id
-		LEFT JOIN AddressAttributes ra_attrs ON ra.address_id = ra_attrs.address_id
-		LEFT JOIN AddressReport ar ON ra.address_id = ar.address_id
+			(
+				SELECT json_agg(DISTINCT jsonb_build_object(
+					'report_id', r.id,
+					'report_name', r.name
+				))
+				FROM public.report_address ra
+				JOIN public.report r ON r.id = ra.report_id
+				WHERE ra.address_id = a.id
+				AND r.author = $1
+			) AS reportes
+		FROM public.address a
+		JOIN public.report_address ra ON ra.address_id = a.id
+		JOIN public.report r ON r.id = ra.report_id
+		JOIN public.users u ON u.id = r.author
 		WHERE r.author = $1
-		GROUP BY a.address, a.normalized_address, a.latitude, a.longitude, ar.report_details
-		ORDER BY a.address`
+		AND a.latitude != 0
+		AND a.longitude != 0
+		GROUP BY a.id, a.address, a.normalized_address, a.latitude, a.longitude
+
+
+
+		`
 
 	rows, err := db.Query(query, userID)
 	if err != nil {
 		//log.Printf("Error querying reports: %v", err)
 		//http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return nil,err
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -310,18 +298,18 @@ func (db PortalRepository) GetAddressInfoByUserId(userID int) ([]dto.AddressRepo
 		if err != nil {
 			log.Printf("Error scanning row: %v", err)
 			//http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return  nil,err
+			return nil, err
 		}
 		// Unmarshal JSON fields
 		if err := json.Unmarshal(attrsJSON, &rpt.AtributosRelacionados); err != nil {
 			log.Printf("Error unmarshaling atributos_relacionados: %v", err)
 			//http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return  nil,err
+			return nil, err
 		}
 		if err := json.Unmarshal(repsJSON, &rpt.Reportes); err != nil {
 			log.Printf("Error unmarshaling reportes: %v", err)
 			//http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return  nil,err
+			return nil, err
 		}
 		reports = append(reports, rpt)
 	}

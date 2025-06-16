@@ -21,17 +21,17 @@ func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-    authHeader := r.Header.Get("Authorization")
-    if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-        http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
-        return
-    }
-    token := strings.TrimPrefix(authHeader, "Bearer ")
-    user, err := s.portalService.ValidateToken(token)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
-        return
-    }	
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	user, err := s.portalService.ValidateToken(token)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
+		return
+	}
 
 	fmt.Println("Usuario autenticado:", user.Alias)
 
@@ -56,23 +56,19 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-
 	cookie, err := r.Cookie("auth_token")
-    if err != nil {
-        http.Error(w, "Missing auth token cookie", http.StatusUnauthorized)
-        return
-    }
-    token := cookie.Value
-    user, err := s.portalService.ValidateToken(token)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
-        return
-    }	
-
-	
+	if err != nil {
+		http.Error(w, "Missing auth token cookie", http.StatusUnauthorized)
+		return
+	}
+	token := cookie.Value
+	user, err := s.portalService.ValidateToken(token)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
+		return
+	}
 
 	fmt.Println("Usuario autenticado:", user.Alias)
-
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -123,8 +119,8 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 
 				infoReport["Dirección Normalizada"] = "-"
 				infoReport["Latitud"] = fmt.Sprintf("%f", geo.Latitude)
-				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)	
-				go s.portalService.SaveReportInfo(user.ID,s.reports.ReportName,infoReport,geo , token ,index)
+				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)
+				//s.portalService.SaveReportInfo(user.ID, s.reports.ReportName, infoReport, geo, token, index)
 
 				data, _ := json.Marshal(geo)
 				fmt.Fprintf(w, "data: %s\n\n", data)
@@ -138,20 +134,18 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 				geo.Status = status
 				infoReport["Dirección Normalizada"] = geo.FormattedAddress
 				infoReport["Latitud"] = fmt.Sprintf("%f", geo.Latitude)
-				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)	
-				go s.portalService.SaveReportInfo(user.ID,s.reports.ReportName,infoReport,geo , token ,index)
+				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)
+				//s.portalService.SaveReportInfo(user.ID, s.reports.ReportName, infoReport, geo, token, index)
 
 				data, _ := json.Marshal(geo)
 				_, err = fmt.Fprintf(w, "data: %s\n\n", data)
 				if err != nil {
 					return
 				}
-				
+
 			}
-			
 
-
-			
+			s.saveToPortal(user.ID, geo, infoReport, token, index)
 			flusher.Flush()
 		}
 	}
@@ -160,6 +154,23 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	if errLoad == nil {
 		flusher.Flush()
 	}
+}
+
+func (s *Server) saveToPortal(userID int, geo domain.Geolocation, infoReport map[string]string, token string, index int) {
+	found := false
+	for _, addr := range s.addressUnique {
+		if addr == geo.FormattedAddress {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.addressUnique = append(s.addressUnique, geo.FormattedAddress)
+		go s.portalService.SaveReportInfo(userID, s.reports.ReportName, infoReport, geo, token, index)
+	} else {
+		s.portalService.SaveReportInfo(userID, s.reports.ReportName, infoReport, geo, token, index)
+	}
+
 }
 
 // sanitizeString limpia una cadena para que sea válida en JSON
