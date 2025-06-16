@@ -12,7 +12,7 @@ type Server struct {
 	healthService *services.Health
 	coordService  *services.GeolocationService
 	portalService *services.PortalService
-	reports       services.CoordsRequest
+	reports       services.CoordsReportRequest
 }
 
 func NewServer(repoAddress ports.GeolocationRepository, portalRepo ports.PortalRepository) *Server {
@@ -20,7 +20,7 @@ func NewServer(repoAddress ports.GeolocationRepository, portalRepo ports.PortalR
 		healthService: services.NewHealthService(),
 		coordService:  services.NewGeolocationService(repoAddress),
 		portalService: services.NewPortalService(portalRepo),
-		reports:       services.CoordsRequest{},
+		reports:       services.CoordsReportRequest{},
 	}
 	return s
 }
@@ -48,7 +48,11 @@ func (s *Server) StartServer(port, certFile, keyFile string) error {
 	mux.HandleFunc("/api/getcoords/", s.getCoordsHandler)
 
 	//login
-	mux.HandleFunc("/api/login", s.loginHandler)
+	mux.HandleFunc("/api/login", s.logInHandler)
+	mux.HandleFunc("/api/logout", s.logOutHandler)
+
+	//porta
+	mux.HandleFunc("/portal/addressInfo", s.addressInfoHandler)
 
 	addr := ":" + port
 

@@ -2,88 +2,195 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
+
 	"time"
 	"wemaps/internal/adapters/http/dto"
+	"wemaps/internal/domain"
 	"wemaps/internal/ports"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
 type PortalService struct {
 	repository ports.PortalRepository
+	cache      map[string]int
+	cacheMu    sync.RWMutex
 }
 
-type User struct {
-	ID       int
-	Email    string
-	Alias    string
-	FullName string
-	Phone    string
-}
 
-type Session struct {
-	ID        string
-	UserID    int
-	Token     string
-	IPAddress string
-	ExpiresAt time.Time
-}
 
-func NewPortalService(repositoryPortal ports.PortalRepository) *PortalService {
+func NewPortalService(repository ports.PortalRepository) *PortalService {
 	return &PortalService{
-		repository: repositoryPortal,
+		repository: repository,
+		cache:      make(map[string]int),
 	}
 }
 
-func (s *PortalService) SeteaUserOnline(ctx context.Context, request dto.RequestLogin) (*User, error) {
+func (s *PortalService) cacheKey(nameReport, hash string) string {
+	return fmt.Sprintf("%s:%s", nameReport, hash)
+}
+
+func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) error {
+	cacheReportKey := s.cacheKey(nameReport, hash)
+	var idReport int
+	var found bool
+
+	s.cacheMu.RLock()
+	idReport, found = s.cache[cacheReportKey]
+	s.cacheMu.RUnlock()
+
+	if !found {
+		var err error
+		idReport, err = s.repository.SaveReportByIdUser(idUser, nameReport, hash)
+		if err != nil {
+			return fmt.Errorf("failed to save report: %v", err)
+		}
+
+		s.cacheMu.Lock()
+		s.cache[cacheReportKey] = idReport
+		s.cacheMu.Unlock()
+	}
+
+	// Guardar detalles
+	return s.saveReportDetails(idReport, infoReport, geo, index)
+}
+
+func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]string, geo domain.Geolocation, index int) error {
+	addressID := 0
+	cacheAddressKey := s.cacheKey(geo.OriginAddress, geo.FormattedAddress)
+	var err error
+
+	s.cacheMu.RLock()
+	var found bool
+	addressID, found = s.cache[cacheAddressKey]
+	s.cacheMu.RUnlock()
+
+	if !found {
+
+		addressID, err = s.repository.SaveAddress(
+			idReport, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to save address: %v", err)
+		}
+
+		s.cacheMu.Lock()
+		s.cache[cacheAddressKey] = addressID
+		s.cacheMu.Unlock()
+	}
+
+	if addressID > 0 {
+		_, err = s.repository.SaveAddressInReport(idReport, addressID, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder)
+		if err != nil {
+			return fmt.Errorf("error linking new address to report: %v", err)
+		}
+	}
+
+	_, err = s.repository.SaveReportColumnByIdReport(idReport, addressID, infoReport, index)
+	if err != nil {
+		return fmt.Errorf("failed to save report columns: %v", err)
+	}
+
+	return nil
+}
+
+func (s *PortalService) ValidateToken(token string) (*User, error) {
+	repoUser, err := s.repository.FindUserByToken(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate token: %v", err)
+	}
+	if repoUser == nil {
+		return nil, nil
+	}
+	user := &User{
+		ID:       repoUser.ID,
+		Alias:    repoUser.Alias,
+		Email:    repoUser.Email,
+		FullName: repoUser.FullName,
+		Phone:    repoUser.Phone,
+	}
+	return user, nil
+}
+
+func (s *PortalService) CreateUser(alias string, email string, name string, phone string) (int, error) {
+	id, error := s.repository.CreateUser(alias, email, name, phone)
+	if error != nil {
+		fmt.Println("Error al crear el usuario:", error)
+		return -1, error
+	} else {
+		fmt.Println("Nuevo usuario creado:", alias)
+		return id, error
+	}
+}
+
+func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.RequestLogin) (*User, error) {
 	var user User
 
 	if request.Provider == "google.com" {
-		loginGoogle, ok := request.Response.(dto.LoginGoogle)
-		if !ok {
-			return nil, errors.New("invalid response type for Google login")
-		}
-		user.Alias = loginGoogle.User.Email
-		user.Email = loginGoogle.User.Email
-		user.FullName = loginGoogle.User.DisplayName
-		if len(loginGoogle.User.ProviderData) > 0 && loginGoogle.User.ProviderData[0].PhoneNumber != nil {
-			phone, ok := loginGoogle.User.ProviderData[0].PhoneNumber.(string)
-			if !ok {
-				user.Phone = ""
+		var fmtinGoogle dto.LoginGoogle
+
+		if responseBytes, ok := request.Response.(string); ok {
+			err := json.Unmarshal([]byte(responseBytes), &fmtinGoogle)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal Google fmtin response: %w", err)
 			}
-			user.Phone = phone
+		} else if responseMap, ok := request.Response.(map[string]interface{}); ok {
+
+			bytes, err := json.Marshal(responseMap)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal response map: %w", err)
+			}
+			err = json.Unmarshal(bytes, &fmtinGoogle)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal response to fmtinGoogle: %w", err)
+			}
 		} else {
-			user.Phone = ""
+			// Intenta castear directamente a dto.fmtinGoogle
+			fmtinGoogle, ok = request.Response.(dto.LoginGoogle)
+			if !ok {
+				return nil, errors.New("invalid response type for Google fmtin")
+			}
 		}
 
+		user.Alias = fmtinGoogle.User.Email
+		user.Email = fmtinGoogle.User.Email
+		user.FullName = fmtinGoogle.User.DisplayName
+		user.Phone = ""
+		if len(fmtinGoogle.User.ProviderData) > 0 && fmtinGoogle.User.ProviderData[0].PhoneNumber != nil {
+			if phone, ok := fmtinGoogle.User.ProviderData[0].PhoneNumber.(string); ok {
+				user.Phone = phone
+			}
+		}
 	}
 
 	return &user, nil
 }
-
-func (s *PortalService) CreateSession(userID int, ipAddress string) (*Session, error) {
+func (s *PortalService) RecordSession(userID int, ipAddress string, active bool) (*Session, error) {
 	sessionID := uuid.New().String()
+	//Sesion dura 24 horas
 	expiresAt := time.Now().Add(24 * time.Hour)
-	/*
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"user_id":    userID,
-			"session_id": sessionID,
-			"ip_address": ipAddress,
-			"exp":        expiresAt.Unix(),
-		})
-	*/
 
-	tokenString := ""
-	/*
-		query := `
-			INSERT INTO sessions (user_id, session_id, token, ip_address, expires_at)
-			VALUES ($1, $2, $3, $4, $5)`
-		_, err = s.repository.Exec(query, userID, sessionID, tokenString, ipAddress, expiresAt)
-		if err != nil {
-			return nil, fmt.Errorf("error saving session: %v", err)
-		}
-	*/
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":    userID,
+		"session_id": sessionID,
+		"ip_address": ipAddress,
+		"exp":        expiresAt.Unix(),
+	})
+
+	secretKey := "PONTUPIN"
+
+	tokenString, err := token.SignedString([]byte(secretKey))
+	if err != nil {
+		return nil, errors.New("failed to sign token")
+	}
+
+	s.repository.LogSession(sessionID, userID, tokenString, ipAddress, expiresAt, active)
+
 	return &Session{
 		ID:        sessionID,
 		UserID:    userID,
@@ -99,45 +206,9 @@ func (s *PortalService) GetUserID(Alias string) (int, error) {
 	return userID, nil
 }
 
-func (s *PortalService) ValidateSession(tokenString, ipAddress string) (*Session, error) {
-
-	/*
-			token , err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return []byte(s.jwtSecret), nil
-		})
-
-		if err != nil || !token.Valid {
-			return nil, fmt.Errorf("invalid token: %v", err)
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			return nil, fmt.Errorf("invalid token claims")
-		}
-
-		sessionID, _ := claims["session_id"].(string)
-		//userID, _ := claims["user_id"].(float64)
-		storedIPAddress, _ := claims["ip_address"].(string)
-		exp, _ := claims["exp"].(float64)
-
-		if storedIPAddress != ipAddress {
-			return nil, fmt.Errorf("IP address mismatch")
-		}
-
-		if time.Now().Unix() > int64(exp) {
-			return nil, fmt.Errorf("token expired")
-		}
-
-		var session Session
-		query := `
-			SELECT user_id, session_id, token, ip_address, expires_at
-			FROM sessions
-			WHERE session_id = $1 AND is_active = TRUE`
-		err = s.repository.QueryRow(query, sessionID).Scan(&session.UserID, &session.ID, &session.Token, &session.IPAddress, &session.ExpiresAt)
-		if err != nil {
-			return nil, fmt.Errorf("session not found or inactive: %v", err)
-		}
-	*/
-	var session Session
-	return &session, nil
+func (s *PortalService) GetAddressInfoByUserId(userID int) ([]dto.AddressReport,error) {
+	addressInfo,err := s.repository.GetAddressInfoByUserId(userID)
+	return addressInfo,err
 }
+
+

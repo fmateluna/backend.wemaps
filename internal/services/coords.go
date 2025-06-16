@@ -9,7 +9,8 @@ import (
 	"wemaps/internal/ports"
 )
 
-type CoordsRequest struct {
+type CoordsReportRequest struct {
+	ReportName string            `json:"report_name"`
 	Columns []string            `json:"columns"`
 	Values  map[string][]string `json:"values"`
 }

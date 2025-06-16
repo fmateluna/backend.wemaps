@@ -21,7 +21,21 @@ func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	var report services.CoordsRequest
+    authHeader := r.Header.Get("Authorization")
+    if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+        http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+        return
+    }
+    token := strings.TrimPrefix(authHeader, "Bearer ")
+    user, err := s.portalService.ValidateToken(token)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
+        return
+    }	
+
+	fmt.Println("Usuario autenticado:", user.Alias)
+
+	var report services.CoordsReportRequest
 	if err := json.Unmarshal(bodyBytes, &report); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -42,6 +56,24 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+
+	cookie, err := r.Cookie("auth_token")
+    if err != nil {
+        http.Error(w, "Missing auth token cookie", http.StatusUnauthorized)
+        return
+    }
+    token := cookie.Value
+    user, err := s.portalService.ValidateToken(token)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
+        return
+    }	
+
+	
+
+	fmt.Println("Usuario autenticado:", user.Alias)
+
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
@@ -51,20 +83,32 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	geolocationService := s.coordService
 
 	if len(s.reports.Columns) > 0 {
-		key := s.reports.Columns[0]
-		values := s.reports.Values[key]
+		keyAddresToGeoCoding := s.reports.Columns[0]
+		addressToGeoCoding := s.reports.Values[keyAddresToGeoCoding]
 		nok := 0
 		ok := 0
-		for index, address := range values {
+
+		//s.portalService.SaveReportInfo()
+
+		for index, address := range addressToGeoCoding {
 
 			geo, err := geolocationService.GetCoordsFromAddress(address)
 
 			status := domain.StatusGeoResult{}
 			status.Count = index + 1
-			status.Total = len(values)
+			status.Total = len(addressToGeoCoding)
 			status.Ok = ok
 			status.Nok = nok
 			status.Result = (err == nil)
+
+			infoReport := make(map[string]string)
+			for _, col := range s.reports.Columns {
+				if col == keyAddresToGeoCoding {
+					infoReport[col] = geo.OriginAddress
+				} else {
+					infoReport[col] = s.reports.Values[col][index]
+				}
+			}
 
 			if err != nil {
 				geo := domain.Geolocation{}
@@ -76,27 +120,44 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 				geo.Latitude = 0
 				geo.Longitude = 0
 				geo.Geocoder = "Sin Información : " + err.Error()
+
+				infoReport["Dirección Normalizada"] = "-"
+				infoReport["Latitud"] = fmt.Sprintf("%f", geo.Latitude)
+				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)	
+				go s.portalService.SaveReportInfo(user.ID,s.reports.ReportName,infoReport,geo , token ,index)
+
 				data, _ := json.Marshal(geo)
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				flusher.Flush()
+
 				continue
 			} else {
 				geo.OriginAddress = address
 				ok = ok + 1
 				geo.Status.Ok = ok
 				geo.Status = status
+				infoReport["Dirección Normalizada"] = geo.FormattedAddress
+				infoReport["Latitud"] = fmt.Sprintf("%f", geo.Latitude)
+				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)	
+				go s.portalService.SaveReportInfo(user.ID,s.reports.ReportName,infoReport,geo , token ,index)
+
 				data, _ := json.Marshal(geo)
 				_, err = fmt.Fprintf(w, "data: %s\n\n", data)
 				if err != nil {
 					return
 				}
+				
 			}
+			
+
+
+			
 			flusher.Flush()
 		}
 	}
 
-	_, err := fmt.Fprintf(w, "data: {\"status\": \"done\"}\n\n")
-	if err == nil {
+	_, errLoad := fmt.Fprintf(w, "data: {\"status\": \"done\"}\n\n")
+	if errLoad == nil {
 		flusher.Flush()
 	}
 }

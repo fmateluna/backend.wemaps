@@ -8,6 +8,6 @@ func NewHealthService() *Health {
 	return &Health{}
 }
 
-func (h *Health) Check() (domain.HealthStatus, error) {
-	return domain.HealthStatus{Status: "ok"}, nil
+func (h *Health) Check(alias string ) (domain.HealthStatus, error) {
+	return domain.HealthStatus{Status: "ok " + alias}, nil
 }
