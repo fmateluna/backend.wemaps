@@ -15,6 +15,6 @@ type PortalRepository interface {
 	SaveReportColumnByIdReport(idReport int, addressID int, infoReport map[string]string, index int) (int, error)
 	SaveReportByIdUser(idUser int, nameReport string, instance string) (int, error)
 	SaveAddressInReport(idReport int, addressID int, latitude float64, longitude float64, formatAddress string, geocoder string) (int, error)
-	GetAddressInfoByUserId(userID int) ([]dto.AddressReport,error)
+	GetAddressInfoByUserId(userID int) ([]dto.AddressReport, error)
+	GetReportSummaryByUserId(userID int) ([]dto.ReportResume, error)
 }
-

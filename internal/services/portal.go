@@ -22,8 +22,6 @@ type PortalService struct {
 	cacheMu    sync.RWMutex
 }
 
-
-
 func NewPortalService(repository ports.PortalRepository) *PortalService {
 	return &PortalService{
 		repository: repository,
@@ -206,9 +204,12 @@ func (s *PortalService) GetUserID(Alias string) (int, error) {
 	return userID, nil
 }
 
-func (s *PortalService) GetAddressInfoByUserId(userID int) ([]dto.AddressReport,error) {
-	addressInfo,err := s.repository.GetAddressInfoByUserId(userID)
-	return addressInfo,err
+func (s *PortalService) GetAddressInfoByUserId(userID int) ([]dto.AddressReport, error) {
+	addressInfo, err := s.repository.GetAddressInfoByUserId(userID)
+	return addressInfo, err
 }
 
-
+func (s *PortalService) GetReportSummaryByUserId(userID int) ([]dto.ReportResume, error) {
+	summaries, err := s.repository.GetReportSummaryByUserId(userID)
+	return summaries, err
+}

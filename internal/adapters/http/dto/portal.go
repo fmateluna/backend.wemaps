@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 type RequestLogin struct {
 	Provider string      `json:"provider"`
 	Token    string      `json:"token"`
@@ -13,6 +15,13 @@ type AddressReport struct {
 	Longitude             float64         `json:"longitude"`
 	AtributosRelacionados []ReportDetail  `json:"atributos_relacionados"`
 	Reportes              []ReportSummary `json:"reportes"`
+}
+
+type ReportResume struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	CreatedAt   time.Time `json:"created_at"`
+	Direcciones int       `json:"direcciones"`
 }
 
 type ReportDetail struct {

@@ -315,3 +315,45 @@ func (db PortalRepository) GetAddressInfoByUserId(userID int) ([]dto.AddressRepo
 	}
 	return reports, nil
 }
+
+func (db PortalRepository) GetReportSummaryByUserId(userID int) ([]dto.ReportResume, error) {
+	query := `
+        SELECT 
+			r.id,
+            r."name",
+            r.created_at,
+            COUNT(*) AS direcciones
+        FROM
+            report r
+            JOIN report_address ra ON r.id = ra.report_id
+        WHERE
+            r.author = $1
+        GROUP BY 
+			r.id,
+            r."name",
+            r.created_at
+    `
+
+	rows, err := db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []dto.ReportResume
+	for rows.Next() {
+		var summary dto.ReportResume
+		err := rows.Scan(
+			&summary.ID,
+			&summary.Name,
+			&summary.CreatedAt,
+			&summary.Direcciones,
+		)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summary)
+	}
+
+	return summaries, nil
+}

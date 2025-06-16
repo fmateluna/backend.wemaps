@@ -54,6 +54,7 @@ func (s *Server) StartServer(port, certFile, keyFile string) error {
 
 	//porta
 	mux.HandleFunc("/portal/addressInfo", s.addressInfoHandler)
+	mux.HandleFunc("/portal/reports", s.reportSummaryHandler)
 
 	addr := ":" + port
 
