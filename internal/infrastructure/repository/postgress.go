@@ -357,3 +357,48 @@ func (db PortalRepository) GetReportSummaryByUserId(userID int) ([]dto.ReportRes
 
 	return summaries, nil
 }
+
+func (db PortalRepository) GetReportRowsByReportID(reportID int) ([]dto.ReportRow, error) {
+	query := `
+        SELECT 
+            rc.index_column,
+            json_object_agg(rc.name, rc.value) AS fila_transpuesta
+        FROM report r
+        LEFT JOIN report_column rc ON r.id = rc.report_id
+        WHERE r.id = $1
+        GROUP BY rc.index_column
+        ORDER BY rc.index_column
+    `
+
+	rows, err := db.Query(query, reportID)
+	if err != nil {
+		log.Printf("Error querying report rows: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reportRows []dto.ReportRow
+	for rows.Next() {
+		var (
+			row      dto.ReportRow
+			filaJSON []byte
+		)
+		err := rows.Scan(
+			&row.IndexColumn,
+			&filaJSON,
+		)
+		if err != nil {
+			log.Printf("Error scanning row: %v", err)
+			return nil, err
+		}
+
+		if err := json.Unmarshal(filaJSON, &row.FilaTranspuesta); err != nil {
+			log.Printf("Error unmarshaling fila_transpuesta: %v", err)
+			return nil, err
+		}
+
+		reportRows = append(reportRows, row)
+	}
+
+	return reportRows, nil
+}

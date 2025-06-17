@@ -117,6 +117,7 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 				geo.Longitude = 0
 				geo.Geocoder = "Sin Información : " + err.Error()
 
+				infoReport[keyAddresToGeoCoding] = address
 				infoReport["Dirección Normalizada"] = "-"
 				infoReport["Latitud"] = fmt.Sprintf("%f", geo.Latitude)
 				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)

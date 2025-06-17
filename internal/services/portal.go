@@ -213,3 +213,8 @@ func (s *PortalService) GetReportSummaryByUserId(userID int) ([]dto.ReportResume
 	summaries, err := s.repository.GetReportSummaryByUserId(userID)
 	return summaries, err
 }
+
+func (s *PortalService) GetReportRowsByReportID(reportID int) ([]dto.ReportRow, error) {
+	rows, err := s.repository.GetReportRowsByReportID(reportID)
+	return rows, err
+}

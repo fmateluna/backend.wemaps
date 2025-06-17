@@ -34,3 +34,8 @@ type ReportSummary struct {
 	ReportID   int    `json:"report_id"`
 	ReportName string `json:"report_name"`
 }
+
+type ReportRow struct {
+	IndexColumn     int               `json:"index_column"`
+	FilaTranspuesta map[string]string `json:"fila_transpuesta"`
+}
