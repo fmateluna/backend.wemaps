@@ -6,9 +6,84 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 	"wemaps/internal/domain"
 	"wemaps/internal/services"
 )
+
+func (s *Server) getSingleAddressCoordsHandler(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	// Handle preflight OPTIONS request
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Validate HTTP method
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Validate authorization header
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	_, err := s.portalService.ValidateToken(token)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
+		return
+	}
+
+	// Get address from query parameter
+	address := r.URL.Query().Get("address")
+	if address == "" {
+		http.Error(w, "Missing address query parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitize address
+	address = sanitizeString(address)
+
+	// Fetch coordinates
+	geo, err := s.coordService.GetCoordsFromAddress(address)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to geocode address: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare response
+	response := struct {
+		FormattedAddress string  `json:"formatted_address"`
+		Latitude         float64 `json:"latitude"`
+		Longitude        float64 `json:"longitude"`
+	}{
+		FormattedAddress: geo.FormattedAddress,
+		Latitude:         geo.Latitude,
+		Longitude:        geo.Longitude,
+	}
+
+	// If geocoding failed, return default values
+	if geo.FormattedAddress == address {
+		response.FormattedAddress = "No se pudo geolocalizar"
+		response.Latitude = 0
+		response.Longitude = 0
+	}
+
+	// Send JSON response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
 
 func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")                            // Permitir todos los orígenes
@@ -39,6 +114,12 @@ func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(bodyBytes, &report); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
+	}
+
+	if report.ReportName == "" {
+		now := time.Now()
+		formattedTime := now.Format("2006-01-02_150405")
+		report.ReportName = "Nuevo Reporte " + formattedTime
 	}
 
 	s.reports = report

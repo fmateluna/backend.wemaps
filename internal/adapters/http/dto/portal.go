@@ -9,6 +9,7 @@ type RequestLogin struct {
 }
 
 type AddressReport struct {
+	ID                    string          `json:"id"`
 	Address               string          `json:"address"`
 	NormalizedAddress     string          `json:"normalized_address"`
 	Latitude              float64         `json:"latitude"`
@@ -38,4 +39,17 @@ type ReportSummary struct {
 type ReportRow struct {
 	IndexColumn     int               `json:"index_column"`
 	FilaTranspuesta map[string]string `json:"fila_transpuesta"`
+}
+
+type CategoryCount struct {
+	Category string `json:"category"`
+	Total    int    `json:"total"`
+}
+
+type UserPortal struct {
+	ID       int
+	Email    string
+	Alias    string
+	FullName string
+	Phone    string
 }

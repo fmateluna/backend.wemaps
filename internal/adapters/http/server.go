@@ -44,18 +44,21 @@ func (s *Server) StartServer(port, certFile, keyFile string) error {
 	mux.Handle("/", fileServerWithHeaders(fs))
 
 	// Endpoints API
-	mux.HandleFunc("/api/health", s.healthHandler)
-	mux.HandleFunc("/api/submitcoords", s.submitCoordsHandler)
-	mux.HandleFunc("/api/getcoords/", s.getCoordsHandler)
+	mux.HandleFunc("/api/health", s.AuthMiddleware(s.healthHandler))
+	mux.HandleFunc("/api/submitcoords", s.AuthMiddleware(s.submitCoordsHandler))
+	mux.HandleFunc("/api/getcoords/", s.AuthMiddleware(s.getCoordsHandler))
+	mux.HandleFunc("/portal/coordinates", s.AuthMiddleware(s.getSingleAddressCoordsHandler))
 
 	//login
 	mux.HandleFunc("/api/login", s.logInHandler)
 	mux.HandleFunc("/api/logout", s.logOutHandler)
 
 	//porta
-	mux.HandleFunc("/portal/addressInfo", s.addressInfoHandler)
-	mux.HandleFunc("/portal/reports", s.reportSummaryHandler)
-	mux.HandleFunc("/portal/report", s.reportRowsHandler)
+	mux.HandleFunc("/portal/addressInfo", s.AuthMiddleware(s.addressInfoHandler))
+	mux.HandleFunc("/portal/addressInfoPeerPage", s.AuthMiddleware(s.addressInfoHandlerPeerPage))
+	mux.HandleFunc("/portal/reports", s.AuthMiddleware(s.reportSummaryHandler))
+	mux.HandleFunc("/portal/report", s.AuthMiddleware(s.reportRowsHandler))
+	mux.HandleFunc("/portal/countInfo", s.AuthMiddleware(s.countInfo))
 
 	addr := ":" + port
 

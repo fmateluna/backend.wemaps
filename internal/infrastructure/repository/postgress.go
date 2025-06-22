@@ -136,7 +136,7 @@ func (db *PortalRepository) LogSession(sessionID string, userID int, tokenString
 		log.Printf("error logging session: %v", err)
 		return
 	}
-	log.Println("Session logged successfully")
+	log.Println("Session logged successfully %s", active)
 }
 
 func (db *PortalRepository) SaveAddress(idReport int, address string, latitude float64, longitude float64, formatAddress string, geocoder string) (int, error) {
@@ -267,9 +267,6 @@ func (db PortalRepository) GetAddressInfoByUserId(userID int) ([]dto.AddressRepo
 		AND a.latitude != 0
 		AND a.longitude != 0
 		GROUP BY a.id, a.address, a.normalized_address, a.latitude, a.longitude
-
-
-
 		`
 
 	rows, err := db.Query(query, userID)
@@ -300,7 +297,6 @@ func (db PortalRepository) GetAddressInfoByUserId(userID int) ([]dto.AddressRepo
 			//http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return nil, err
 		}
-		// Unmarshal JSON fields
 		if err := json.Unmarshal(attrsJSON, &rpt.AtributosRelacionados); err != nil {
 			log.Printf("Error unmarshaling atributos_relacionados: %v", err)
 			//http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -401,4 +397,171 @@ func (db PortalRepository) GetReportRowsByReportID(reportID int) ([]dto.ReportRo
 	}
 
 	return reportRows, nil
+}
+
+func (db *PortalRepository) GetTotalReportsAndAddress(userID int) ([]dto.CategoryCount, error) {
+	query := `
+        SELECT 
+            'address' AS category,
+            COUNT(DISTINCT a.id) AS total
+        FROM 
+            address a
+            JOIN report_address ra ON a.id = ra.address_id
+            JOIN report r ON ra.report_id = r.id
+        WHERE
+            r.author = $1
+        UNION
+        SELECT 
+            'report' AS category,
+            COUNT(*) AS total
+        FROM 
+            report r 
+        WHERE
+            r.author = $1
+    `
+
+	rows, err := db.Query(query, userID)
+	if err != nil {
+		log.Printf("Error querying reports and addresses: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []dto.CategoryCount
+	for rows.Next() {
+		var result dto.CategoryCount
+		err := rows.Scan(
+			&result.Category,
+			&result.Total,
+		)
+		if err != nil {
+			log.Printf("Error scanning row: %v", err)
+			return nil, err
+		}
+		results = append(results, result)
+	}
+
+	if err = rows.Err(); err != nil {
+		log.Printf("Error iterating rows: %v", err)
+		return nil, err
+	}
+
+	return results, nil
+}
+
+func (db PortalRepository) GetAddressInfoByUserIdPeerPage(userID int, query string, limit, offset int) ([]dto.AddressReport, int, error) {
+	// Nueva consulta para contar
+	countQuery := `
+        SELECT COUNT(DISTINCT a.id)
+        FROM address a
+        INNER JOIN report_address ra ON ra.address_id = a.id
+        INNER JOIN report r ON ra.report_id = r.id
+        WHERE r.author = $1
+        AND (
+            $2 = ''
+            OR a.address ILIKE '%' || $2 || '%'
+            OR a.normalized_address ILIKE '%' || $2 || '%'
+        )
+    `
+
+	var total int
+	err := db.QueryRow(countQuery, userID, query).Scan(&total)
+	if err != nil {
+		log.Printf("Error counting addresses: %v", err)
+		return nil, 0, err
+	}
+
+	// Consulta principal
+	querySQL := `
+        SELECT 
+            a.id,
+            a.address,
+            a.normalized_address,
+            a.latitude,
+            a.longitude,
+            COALESCE(
+                (
+                    SELECT json_agg(attrs)
+                    FROM (
+                        SELECT json_build_object(
+                            'atributos', json_object_agg(rc.name, rc.value)
+                        ) AS attrs
+                        FROM report_column rc
+                        INNER JOIN report_address ra2 ON ra2.report_id = rc.report_id
+                        WHERE ra2.address_id = a.id
+                        GROUP BY rc.report_id
+                    ) sub
+                ),
+                '[]'
+            ) AS atributos_relacionados,
+            COALESCE(
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'report_id', r2.id,
+                            'report_name', r2.name
+                        )
+                    )
+                    FROM report r2
+                    INNER JOIN report_address ra2 ON ra2.report_id = r2.id
+                    WHERE ra2.address_id = a.id
+                ),
+                '[]'
+            ) AS reportes
+        FROM address a
+        INNER JOIN report_address ra ON ra.address_id = a.id
+        INNER JOIN report r ON ra.report_id = r.id
+        WHERE r.author = $1
+        AND (
+            $2 = ''
+            OR a.address ILIKE '%' || $2 || '%'
+            OR a.normalized_address ILIKE '%' || $2 || '%'
+        )
+        GROUP BY a.id, a.address, a.normalized_address, a.latitude, a.longitude
+        ORDER BY a.id
+        LIMIT $3 OFFSET $4
+    `
+
+	rows, err := db.Query(querySQL, userID, query, limit, offset)
+	if err != nil {
+		log.Printf("Error querying addresses: %v", err)
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var addresses []dto.AddressReport
+	for rows.Next() {
+		var (
+			addr          dto.AddressReport
+			atributosJSON []byte
+			reportesJSON  []byte
+		)
+		err := rows.Scan(
+			&addr.ID,
+			&addr.Address,
+			&addr.NormalizedAddress,
+			&addr.Latitude,
+			&addr.Longitude,
+			&atributosJSON,
+			&reportesJSON,
+		)
+		if err != nil {
+			log.Printf("Error scanning address: %v", err)
+			return nil, 0, err
+		}
+
+		if err := json.Unmarshal(atributosJSON, &addr.AtributosRelacionados); err != nil {
+			log.Printf("Error unmarshaling atributos: %v", err)
+			return nil, 0, err
+		}
+
+		if err := json.Unmarshal(reportesJSON, &addr.Reportes); err != nil {
+			log.Printf("Error unmarshaling reportes: %v", err)
+			return nil, 0, err
+		}
+
+		addresses = append(addresses, addr)
+	}
+
+	return addresses, total, nil
 }

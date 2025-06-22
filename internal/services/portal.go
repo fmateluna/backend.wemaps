@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-
 	"time"
+
 	"wemaps/internal/adapters/http/dto"
 	"wemaps/internal/domain"
 	"wemaps/internal/ports"
@@ -16,12 +16,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// PortalService estructura sin cache manager inyectado
 type PortalService struct {
 	repository ports.PortalRepository
 	cache      map[string]int
 	cacheMu    sync.RWMutex
 }
 
+// NewPortalService crea un nuevo PortalService
 func NewPortalService(repository ports.PortalRepository) *PortalService {
 	return &PortalService{
 		repository: repository,
@@ -29,12 +31,16 @@ func NewPortalService(repository ports.PortalRepository) *PortalService {
 	}
 }
 
-func (s *PortalService) cacheKey(nameReport, hash string) string {
-	return fmt.Sprintf("%s:%s", nameReport, hash)
+// InvalidateUserCache permite invalidar el caché para un usuario específico
+func (s *PortalService) InvalidateUserCache(userID int) {
+	cacheMgr := GetCacheManager()
+	cacheMgr.Delete(cacheMgr.addressCacheKey(userID))
+	cacheMgr.Delete(cacheMgr.reportSummaryCacheKey(userID))
 }
 
 func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) error {
-	cacheReportKey := s.cacheKey(nameReport, hash)
+	cacheMgr := GetCacheManager()
+	cacheReportKey := cacheMgr.cacheKey(nameReport, hash)
 	var idReport int
 	var found bool
 
@@ -52,15 +58,17 @@ func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport
 		s.cacheMu.Lock()
 		s.cache[cacheReportKey] = idReport
 		s.cacheMu.Unlock()
+
+		s.InvalidateUserCache(idUser)
 	}
 
-	// Guardar detalles
 	return s.saveReportDetails(idReport, infoReport, geo, index)
 }
 
 func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]string, geo domain.Geolocation, index int) error {
 	addressID := 0
-	cacheAddressKey := s.cacheKey(geo.OriginAddress, geo.FormattedAddress)
+	cacheMgr := GetCacheManager()
+	cacheAddressKey := cacheMgr.cacheKey(geo.OriginAddress, geo.FormattedAddress)
 	var err error
 
 	s.cacheMu.RLock()
@@ -69,7 +77,6 @@ func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]st
 	s.cacheMu.RUnlock()
 
 	if !found {
-
 		addressID, err = s.repository.SaveAddress(
 			idReport, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
 		)
@@ -97,7 +104,7 @@ func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]st
 	return nil
 }
 
-func (s *PortalService) ValidateToken(token string) (*User, error) {
+func (s *PortalService) ValidateToken(token string) (*dto.UserPortal, error) {
 	repoUser, err := s.repository.FindUserByToken(token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate token: %v", err)
@@ -105,7 +112,7 @@ func (s *PortalService) ValidateToken(token string) (*User, error) {
 	if repoUser == nil {
 		return nil, nil
 	}
-	user := &User{
+	user := &dto.UserPortal{
 		ID:       repoUser.ID,
 		Alias:    repoUser.Alias,
 		Email:    repoUser.Email,
@@ -116,18 +123,17 @@ func (s *PortalService) ValidateToken(token string) (*User, error) {
 }
 
 func (s *PortalService) CreateUser(alias string, email string, name string, phone string) (int, error) {
-	id, error := s.repository.CreateUser(alias, email, name, phone)
-	if error != nil {
-		fmt.Println("Error al crear el usuario:", error)
-		return -1, error
-	} else {
-		fmt.Println("Nuevo usuario creado:", alias)
-		return id, error
+	id, err := s.repository.CreateUser(alias, email, name, phone)
+	if err != nil {
+		fmt.Println("Error al crear el usuario:", err)
+		return -1, err
 	}
+	fmt.Println("Nuevo usuario creado:", alias)
+	return id, err
 }
 
-func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.RequestLogin) (*User, error) {
-	var user User
+func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.RequestLogin) (*dto.UserPortal, error) {
+	var user dto.UserPortal
 
 	if request.Provider == "google.com" {
 		var fmtinGoogle dto.LoginGoogle
@@ -138,7 +144,6 @@ func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.Req
 				return nil, fmt.Errorf("failed to unmarshal Google fmtin response: %w", err)
 			}
 		} else if responseMap, ok := request.Response.(map[string]interface{}); ok {
-
 			bytes, err := json.Marshal(responseMap)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal response map: %w", err)
@@ -148,7 +153,6 @@ func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.Req
 				return nil, fmt.Errorf("failed to unmarshal response to fmtinGoogle: %w", err)
 			}
 		} else {
-			// Intenta castear directamente a dto.fmtinGoogle
 			fmtinGoogle, ok = request.Response.(dto.LoginGoogle)
 			if !ok {
 				return nil, errors.New("invalid response type for Google fmtin")
@@ -168,9 +172,9 @@ func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.Req
 
 	return &user, nil
 }
+
 func (s *PortalService) RecordSession(userID int, ipAddress string, active bool) (*Session, error) {
 	sessionID := uuid.New().String()
-	//Sesion dura 24 horas
 	expiresAt := time.Now().Add(24 * time.Hour)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -199,22 +203,69 @@ func (s *PortalService) RecordSession(userID int, ipAddress string, active bool)
 }
 
 func (s *PortalService) GetUserID(Alias string) (int, error) {
-
-	userID, _ := s.repository.GetUserID(Alias)
-	return userID, nil
+	userID, err := s.repository.GetUserID(Alias)
+	return userID, err
 }
 
 func (s *PortalService) GetAddressInfoByUserId(userID int) ([]dto.AddressReport, error) {
+	cacheMgr := GetCacheManager()
+	cacheKey := cacheMgr.addressCacheKey(userID)
+
+	if cachedData, found := cacheMgr.Get(cacheKey); found {
+		if addressInfo, ok := cachedData.([]dto.AddressReport); ok {
+			return addressInfo, nil
+		}
+	}
+
 	addressInfo, err := s.repository.GetAddressInfoByUserId(userID)
-	return addressInfo, err
+	if err != nil {
+		return nil, err
+	}
+
+	if !cacheMgr.Update(cacheKey, addressInfo, time.Hour) {
+		cacheMgr.Set(cacheKey, addressInfo, time.Hour)
+	}
+
+	return addressInfo, nil
 }
 
 func (s *PortalService) GetReportSummaryByUserId(userID int) ([]dto.ReportResume, error) {
+	cacheMgr := GetCacheManager()
+	cacheKey := cacheMgr.reportSummaryCacheKey(userID)
+
+	if cachedData, found := cacheMgr.Get(cacheKey); found {
+		if summaries, ok := cachedData.([]dto.ReportResume); ok {
+			return summaries, nil
+		}
+	}
+
 	summaries, err := s.repository.GetReportSummaryByUserId(userID)
-	return summaries, err
+	if err != nil {
+		return nil, err
+	}
+
+	if !cacheMgr.Update(cacheKey, summaries, time.Hour) {
+		cacheMgr.Set(cacheKey, summaries, time.Hour)
+	}
+
+	return summaries, nil
 }
 
 func (s *PortalService) GetReportRowsByReportID(reportID int) ([]dto.ReportRow, error) {
 	rows, err := s.repository.GetReportRowsByReportID(reportID)
 	return rows, err
+}
+
+func (s *PortalService) GetTotalReportsAndAddress(userID int) ([]dto.CategoryCount, error) {
+	totales, err := s.repository.GetTotalReportsAndAddress(userID)
+	return totales, err
+}
+
+func (s *PortalService) GetAddressInfoByUserIdPeerPage(userID int, query string, page, pageSize int) ([]dto.AddressReport, int, error) {
+	offset := (page - 1) * pageSize
+	addresses, total, err := s.repository.GetAddressInfoByUserIdPeerPage(userID, query, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	return addresses, total, nil
 }
