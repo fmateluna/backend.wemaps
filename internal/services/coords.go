@@ -10,9 +10,9 @@ import (
 )
 
 type CoordsReportRequest struct {
-	ReportName string            `json:"report_name"`
-	Columns []string            `json:"columns"`
-	Values  map[string][]string `json:"values"`
+	ReportName string              `json:"report_name"`
+	Columns    []string            `json:"columns"`
+	Values     map[string][]string `json:"values"`
 }
 
 type CoordsResponse struct {
@@ -28,9 +28,10 @@ type GeolocationService struct {
 	repository ports.GeolocationRepository
 }
 
-func NewGeolocationService(repo ports.GeolocationRepository) *GeolocationService {
+func NewGeolocationService(repo ports.GeolocationRepository, portalRepo ports.PortalRepository) *GeolocationService {
 	return &GeolocationService{
 		geocoders: []geocoders.Geocoder{
+			geocoders.NewWemapsGeocoder(portalRepo),
 			geocoders.NewNominatimGeocoder(),
 			geocoders.NewGoogleGeocoder(),
 		},

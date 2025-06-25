@@ -9,86 +9,37 @@ import (
 	"time"
 	"wemaps/internal/domain"
 	"wemaps/internal/services"
+
+	"github.com/google/uuid"
 )
 
-func (s *Server) getSingleAddressCoordsHandler(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+type GeoReport struct {
+	Geo      domain.Geolocation `json:"geo"`
+	Index    int                `json:"index"`
+	IdReport int                `json:"-"` //nolint
+	IdUser   int                `json:"-"` //nolint
+}
 
-	// Handle preflight OPTIONS request
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
+const (
+	LOAD_INIT     = 1
+	LOAD_FINISH   = 3
+	LOAD_ERROR    = 4
+	STILL_WORKING = 2
+)
 
-	// Validate HTTP method
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Validate authorization header
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-		http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
-		return
-	}
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-	_, err := s.portalService.ValidateToken(token)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
-		return
-	}
-
-	// Get address from query parameter
-	address := r.URL.Query().Get("address")
-	if address == "" {
-		http.Error(w, "Missing address query parameter", http.StatusBadRequest)
-		return
-	}
-
-	// Sanitize address
-	address = sanitizeString(address)
-
-	// Fetch coordinates
-	geo, err := s.coordService.GetCoordsFromAddress(address)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to geocode address: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Prepare response
-	response := struct {
-		FormattedAddress string  `json:"formatted_address"`
-		Latitude         float64 `json:"latitude"`
-		Longitude        float64 `json:"longitude"`
-	}{
-		FormattedAddress: geo.FormattedAddress,
-		Latitude:         geo.Latitude,
-		Longitude:        geo.Longitude,
-	}
-
-	// If geocoding failed, return default values
-	if geo.FormattedAddress == address {
-		response.FormattedAddress = "No se pudo geolocalizar"
-		response.Latitude = 0
-		response.Longitude = 0
-	}
-
-	// Send JSON response
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
+// ReportSession almacena el reporte y su canal de resultados por sesión
+type ReportSession struct {
+	Report    services.CoordsReportRequest
+	ResultCh  chan GeoReport
+	DoneCh    chan struct{}
+	CreatedAt time.Time
 }
 
 func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")                            // Permitir todos los orígenes
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")          // Métodos permitidos
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization") // Headers permitidos
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Error reading request body", http.StatusInternalServerError)
@@ -122,21 +73,59 @@ func (s *Server) submitCoordsHandler(w http.ResponseWriter, r *http.Request) {
 		report.ReportName = "Nuevo Reporte " + formattedTime
 	}
 
-	s.reports = report
-	w.Write([]byte("Report submitted"))
+	// Generar un ID único para la sesión
+	sessionID := uuid.New().String()
+
+	// Crear canales para la sesión
+	resultCh := make(chan GeoReport, 1)
+	doneCh := make(chan struct{})
+
+	// Guardar la sesión en el mapa
+	s.sessionsMutex.Lock()
+	s.sessions[sessionID] = &ReportSession{
+		Report:    report,
+		ResultCh:  resultCh,
+		DoneCh:    doneCh,
+		CreatedAt: time.Now(),
+	}
+	s.sessionsMutex.Unlock()
+
+	// Devolver el sessionID al cliente
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"sessionID": sessionID})
 }
 
 func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")                            // Permitir todos los orígenes
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")          // Métodos permitidos
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization") // Headers permitidos
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 	w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
-
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	cookieSessionID, err := r.Cookie("sessionID")
+	if err != nil {
+		http.Error(w, "Missing auth token cookie", http.StatusUnauthorized)
+		return
+	}
+	sessionID := cookieSessionID.Value
+	if sessionID == "" {
+		http.Error(w, "Missing sessionID", http.StatusBadRequest)
+		return
+	}
+
+	// Obtener la sesión del mapa
+	s.sessionsMutex.RLock()
+	session, exists := s.sessions[sessionID]
+	s.sessionsMutex.RUnlock()
+	if !exists {
+		http.Error(w, "Invalid sessionID", http.StatusBadRequest)
+		return
+	}
+
+	// Validar token de autenticación
 	cookie, err := r.Cookie("auth_token")
 	if err != nil {
 		http.Error(w, "Missing auth token cookie", http.StatusUnauthorized)
@@ -158,87 +147,129 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	geolocationService := s.coordService
+	report := session.Report
 
-	if len(s.reports.Columns) > 0 {
-		keyAddresToGeoCoding := s.reports.Columns[0]
-		addressToGeoCoding := s.reports.Values[keyAddresToGeoCoding]
+	if len(report.Columns) == 0 {
+		http.Error(w, "No columns in report", http.StatusBadRequest)
+		return
+	}
+
+	keyAddresToGeoCoding := report.Columns[0]
+	addressToGeoCoding := report.Values[keyAddresToGeoCoding]
+
+	// Goroutine para procesar direcciones
+	go func() {
+		defer func() {
+			close(session.DoneCh)
+			// Limpiar la sesión al terminar
+			s.sessionsMutex.Lock()
+			delete(s.sessions, sessionID)
+			s.sessionsMutex.Unlock()
+		}()
+
 		nok := 0
 		ok := 0
-
-		//s.portalService.SaveReportInfo()
+		idReport := -1
 
 		for index, address := range addressToGeoCoding {
-
 			geo, err := geolocationService.GetCoordsFromAddress(address)
 
-			status := domain.StatusGeoResult{}
-			status.Count = index + 1
-			status.Total = len(addressToGeoCoding)
-			status.Ok = ok
-			status.Nok = nok
-			status.Result = (err == nil)
+			status := domain.StatusGeoResult{
+				Count:  index + 1,
+				Total:  len(addressToGeoCoding),
+				Ok:     ok,
+				Nok:    nok,
+				Result: err == nil,
+			}
 
 			infoReport := make(map[string]string)
-			for _, col := range s.reports.Columns {
+			for _, col := range report.Columns {
 				if col == keyAddresToGeoCoding {
-					infoReport[col] = geo.OriginAddress
+					infoReport[col] = address
 				} else {
-					infoReport[col] = s.reports.Values[col][index]
+					infoReport[col] = report.Values[col][index]
 				}
 			}
 
 			if err != nil {
-				geo := domain.Geolocation{}
 				nok++
-				status.Nok = nok
-				geo.Status = status
-				geo.OriginAddress = address
-				geo.FormattedAddress = (address)
-				geo.Latitude = 0
-				geo.Longitude = 0
-				geo.Geocoder = "Sin Información : " + err.Error()
-
-				infoReport[keyAddresToGeoCoding] = address
+				geo = domain.Geolocation{
+					Status:           status,
+					OriginAddress:    address,
+					FormattedAddress: address,
+					Latitude:         0,
+					Longitude:        0,
+					Geocoder:         "Sin Información: " + err.Error(),
+				}
 				infoReport["Dirección Normalizada"] = "-"
 				infoReport["Latitud"] = fmt.Sprintf("%f", geo.Latitude)
 				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)
-				//s.portalService.SaveReportInfo(user.ID, s.reports.ReportName, infoReport, geo, token, index)
-
-				data, _ := json.Marshal(geo)
-				fmt.Fprintf(w, "data: %s\n\n", data)
-				flusher.Flush()
-
-				continue
 			} else {
-				geo.OriginAddress = address
-				ok = ok + 1
-				geo.Status.Ok = ok
+				ok++
 				geo.Status = status
+				geo.OriginAddress = address
 				infoReport["Dirección Normalizada"] = geo.FormattedAddress
 				infoReport["Latitud"] = fmt.Sprintf("%f", geo.Latitude)
 				infoReport["Longitud"] = fmt.Sprintf("%f", geo.Longitude)
-				//s.portalService.SaveReportInfo(user.ID, s.reports.ReportName, infoReport, geo, token, index)
-
-				data, _ := json.Marshal(geo)
-				_, err = fmt.Fprintf(w, "data: %s\n\n", data)
-				if err != nil {
-					return
-				}
-
 			}
 
-			s.saveToPortal(user.ID, geo, infoReport, token, index)
-			flusher.Flush()
-		}
-	}
+			// Guardar en el portal
 
-	_, errLoad := fmt.Fprintf(w, "data: {\"status\": \"done\"}\n\n")
-	if errLoad == nil {
-		flusher.Flush()
+			idReport, _ = s.saveToPortal(user.ID, geo, report.ReportName, infoReport, token, index)
+
+			fmt.Println("Reporte:", report.ReportName, " Origen : ["+geo.Geocoder+"] Dirección:", geo.FormattedAddress)
+			// Enviar resultado al canal
+			gr := GeoReport{
+				Geo:      geo,
+				Index:    index,
+				IdReport: idReport,
+				IdUser:   user.ID,
+			}
+
+			//s.portalService.SetStatusReport(gr.IdUser, gr.IdReport, STILL_WORKING)
+
+			select {
+			case session.ResultCh <- gr:
+			case <-r.Context().Done():
+				// Cliente desconectado, continuar procesando
+				//s.portalService.SetStatusReport(gr.IdUser, gr.IdReport, LOAD_ERROR)
+			}
+		}
+		s.portalService.SetStatusReport(user.ID, idReport, LOAD_FINISH)
+	}()
+
+	// Bucle principal para enviar datos al cliente
+	for {
+		select {
+		case geo, ok := <-session.ResultCh:
+			if !ok {
+				// Procesamiento completado
+				_, err := fmt.Fprintf(w, "data: {\"status\": \"done\"}\n\n")
+				if err == nil {
+					s.portalService.SetStatusReport(geo.IdUser, geo.IdReport, LOAD_FINISH)
+					time.Sleep(2 * time.Second)
+					flusher.Flush()
+				}
+				return
+			}
+			// Enviar datos al cliente
+			data, _ := json.Marshal(geo)
+			_, err := fmt.Fprintf(w, "data: %s\n\n", data)
+			time.Sleep(2 * time.Second)
+			if err != nil {
+				s.portalService.SetStatusReport(geo.IdUser, geo.IdReport, LOAD_ERROR)
+				return
+			}
+			flusher.Flush()
+
+		case <-r.Context().Done():
+			// Cliente canceló el request, pero la goroutine sigue procesando
+			return
+		}
 	}
 }
 
-func (s *Server) saveToPortal(userID int, geo domain.Geolocation, infoReport map[string]string, token string, index int) {
+func (s *Server) saveToPortal(userID int, geo domain.Geolocation, reportName string, infoReport map[string]string, token string, index int) (int, error) {
 	found := false
 	for _, addr := range s.addressUnique {
 		if addr == geo.FormattedAddress {
@@ -248,19 +279,15 @@ func (s *Server) saveToPortal(userID int, geo domain.Geolocation, infoReport map
 	}
 	if !found {
 		s.addressUnique = append(s.addressUnique, geo.FormattedAddress)
-		go s.portalService.SaveReportInfo(userID, s.reports.ReportName, infoReport, geo, token, index)
-	} else {
-		s.portalService.SaveReportInfo(userID, s.reports.ReportName, infoReport, geo, token, index)
 	}
-
+	return s.portalService.SaveReportInfo(userID, reportName, infoReport, geo, token, index)
 }
 
 // sanitizeString limpia una cadena para que sea válida en JSON
 func sanitizeString(s string) string {
-	// Reemplazar caracteres no válidos por su representación escapada o un placeholder
 	var sb strings.Builder
 	for _, r := range s {
-		if r < 32 || r > 126 || r == '"' || r == '\\' { // Caracteres de control o especiales
+		if r < 32 || r > 126 || r == '"' || r == '\\' {
 			sb.WriteString(fmt.Sprintf("\\u%04x", r))
 		} else {
 			sb.WriteRune(r)

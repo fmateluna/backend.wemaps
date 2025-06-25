@@ -134,7 +134,7 @@ func (s *Server) reportRowsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := strings.TrimPrefix(authHeader, "Bearer ")
-	_, err := s.portalService.ValidateToken(token)
+	user, err := s.portalService.ValidateToken(token)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
 		return
@@ -157,35 +157,30 @@ func (s *Server) reportRowsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid report_id parameter", http.StatusBadRequest)
 		return
 	}
-	/*
-		authorized, err := s.portalService.IsUserAuthorizedForReport(user.ID, reportID)
+
+	report, err := s.portalService.GetReportByReportUserID(user.ID, reportID)
+	if err == nil {
+		// Obtener los datos del reporte
+		rows, err := s.portalService.GetReportRowsByReportID(reportID)
 		if err != nil {
+			log.Printf("Error fetching report rows: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		if !authorized {
-			http.Error(w, "Unauthorized access to report", http.StatusForbidden)
-			return
-		}
-	*/
-	// Obtener los datos del reporte
-	rows, err := s.portalService.GetReportRowsByReportID(reportID)
-	if err != nil {
-		log.Printf("Error fetching report rows: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+
+		report.Rows = rows
 	}
 
 	// Retornar un array vacío si no hay resultados
-	if len(rows) == 0 {
+	if len(report.Rows) == 0 {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]dto.ReportRow{})
+		json.NewEncoder(w).Encode(dto.ReportSummary{})
 		return
 	}
 
 	// Enviar la respuesta JSON
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(rows); err != nil {
+	if err := json.NewEncoder(w).Encode(report); err != nil {
 		log.Printf("Error encoding response: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}

@@ -3,6 +3,7 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"wemaps/internal/ports"
 	"wemaps/internal/services"
@@ -14,14 +15,18 @@ type Server struct {
 	portalService *services.PortalService
 	reports       services.CoordsReportRequest
 	addressUnique []string
+	mu            sync.Mutex
+	sessions      map[string]*ReportSession //CEREBRO DE MULTISESION!!
+	sessionsMutex sync.RWMutex
 }
 
 func NewServer(repoAddress ports.GeolocationRepository, portalRepo ports.PortalRepository) *Server {
 	s := &Server{
 		healthService: services.NewHealthService(),
-		coordService:  services.NewGeolocationService(repoAddress),
+		coordService:  services.NewGeolocationService(repoAddress, portalRepo),
 		portalService: services.NewPortalService(portalRepo),
 		reports:       services.CoordsReportRequest{},
+		sessions:      make(map[string]*ReportSession),
 	}
 	return s
 }
@@ -45,9 +50,10 @@ func (s *Server) StartServer(port, certFile, keyFile string) error {
 
 	// Endpoints API
 	mux.HandleFunc("/api/health", s.AuthMiddleware(s.healthHandler))
-	mux.HandleFunc("/api/submitcoords", s.AuthMiddleware(s.submitCoordsHandler))
-	mux.HandleFunc("/api/getcoords/", s.AuthMiddleware(s.getCoordsHandler))
-	mux.HandleFunc("/portal/coordinates", s.AuthMiddleware(s.getSingleAddressCoordsHandler))
+	mux.HandleFunc("/api/submitcoords", s.submitCoordsHandler)
+	mux.HandleFunc("/api/getcoords/", s.getCoordsHandler)
+	mux.HandleFunc("/api/coordinates", s.getSingleAddressCoordsHandler)
+	mux.HandleFunc("/api/token", s.getTokenHandler)
 
 	//login
 	mux.HandleFunc("/api/login", s.logInHandler)

@@ -21,6 +21,7 @@ type PortalService struct {
 	repository ports.PortalRepository
 	cache      map[string]int
 	cacheMu    sync.RWMutex
+	jwtSecret  string
 }
 
 // NewPortalService crea un nuevo PortalService
@@ -38,7 +39,7 @@ func (s *PortalService) InvalidateUserCache(userID int) {
 	cacheMgr.Delete(cacheMgr.reportSummaryCacheKey(userID))
 }
 
-func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) error {
+func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) (int, error) {
 	cacheMgr := GetCacheManager()
 	cacheReportKey := cacheMgr.cacheKey(nameReport, hash)
 	var idReport int
@@ -52,7 +53,7 @@ func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport
 		var err error
 		idReport, err = s.repository.SaveReportByIdUser(idUser, nameReport, hash)
 		if err != nil {
-			return fmt.Errorf("failed to save report: %v", err)
+			return -idReport, fmt.Errorf("failed to save report: %v", err)
 		}
 
 		s.cacheMu.Lock()
@@ -62,7 +63,7 @@ func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport
 		s.InvalidateUserCache(idUser)
 	}
 
-	return s.saveReportDetails(idReport, infoReport, geo, index)
+	return idReport, s.saveReportDetails(idReport, infoReport, geo, index)
 }
 
 func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]string, geo domain.Geolocation, index int) error {
@@ -175,7 +176,7 @@ func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.Req
 
 func (s *PortalService) RecordSession(userID int, ipAddress string, active bool) (*Session, error) {
 	sessionID := uuid.New().String()
-	expiresAt := time.Now().Add(24 * time.Hour)
+	expiresAt := time.Now().Add(24 * time.Minute * 5)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id":    userID,
@@ -208,11 +209,21 @@ func (s *PortalService) GetUserID(Alias string) (int, error) {
 }
 
 func (s *PortalService) GetAddressInfoByUserId(userID int) ([]dto.AddressReport, error) {
+
 	cacheMgr := GetCacheManager()
 	cacheKey := cacheMgr.addressCacheKey(userID)
 
 	if cachedData, found := cacheMgr.Get(cacheKey); found {
 		if addressInfo, ok := cachedData.([]dto.AddressReport); ok {
+			go func() {
+				addressInfoUpdate, err := s.repository.GetAddressInfoByUserId(userID)
+				if err == nil {
+
+					if !cacheMgr.Update(cacheKey, addressInfoUpdate, time.Minute*5) {
+						cacheMgr.Set(cacheKey, addressInfoUpdate, time.Minute*5)
+					}
+				}
+			}()
 			return addressInfo, nil
 		}
 	}
@@ -222,8 +233,8 @@ func (s *PortalService) GetAddressInfoByUserId(userID int) ([]dto.AddressReport,
 		return nil, err
 	}
 
-	if !cacheMgr.Update(cacheKey, addressInfo, time.Hour) {
-		cacheMgr.Set(cacheKey, addressInfo, time.Hour)
+	if !cacheMgr.Update(cacheKey, addressInfo, time.Minute*5) {
+		cacheMgr.Set(cacheKey, addressInfo, time.Minute*5)
 	}
 
 	return addressInfo, nil
@@ -235,6 +246,15 @@ func (s *PortalService) GetReportSummaryByUserId(userID int) ([]dto.ReportResume
 
 	if cachedData, found := cacheMgr.Get(cacheKey); found {
 		if summaries, ok := cachedData.([]dto.ReportResume); ok {
+			go func() {
+				summariesUpdate, err := s.repository.GetReportSummaryByUserId(userID)
+				if err == nil {
+
+					if !cacheMgr.Update(cacheKey, summariesUpdate, time.Minute*5) {
+						cacheMgr.Set(cacheKey, summariesUpdate, time.Minute*5)
+					}
+				}
+			}()
 			return summaries, nil
 		}
 	}
@@ -244,8 +264,8 @@ func (s *PortalService) GetReportSummaryByUserId(userID int) ([]dto.ReportResume
 		return nil, err
 	}
 
-	if !cacheMgr.Update(cacheKey, summaries, time.Hour) {
-		cacheMgr.Set(cacheKey, summaries, time.Hour)
+	if !cacheMgr.Update(cacheKey, summaries, time.Minute*5) {
+		cacheMgr.Set(cacheKey, summaries, time.Minute*5)
 	}
 
 	return summaries, nil
@@ -261,6 +281,11 @@ func (s *PortalService) GetTotalReportsAndAddress(userID int) ([]dto.CategoryCou
 	return totales, err
 }
 
+func (s *PortalService) SetStatusReport(userID, reportID, status int) (dto.ReportResume, error) {
+	report, err := s.repository.SetStatusReport(userID, reportID, status)
+	return report, err
+}
+
 func (s *PortalService) GetAddressInfoByUserIdPeerPage(userID int, query string, page, pageSize int) ([]dto.AddressReport, int, error) {
 	offset := (page - 1) * pageSize
 	addresses, total, err := s.repository.GetAddressInfoByUserIdPeerPage(userID, query, pageSize, offset)
@@ -268,4 +293,59 @@ func (s *PortalService) GetAddressInfoByUserIdPeerPage(userID int, query string,
 		return nil, 0, err
 	}
 	return addresses, total, nil
+}
+
+func (s *PortalService) GetReportByReportUserID(userID, reportID int) (dto.ReportResume, error) {
+	report, err := s.repository.GetReportByReportUserID(userID, reportID)
+	return report, err
+}
+
+func (s *PortalService) FindAddreessWemaps(address string) (dto.WeMapsAddress, error) {
+	report, err := s.repository.FindAddress(address)
+	return report, err
+}
+
+func (s *PortalService) GenerateToken(userID int) (string, error) {
+
+	user, err := s.repository.FindUserByID(userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch user alias: %v", err)
+	}
+	if user.Alias == "" {
+		return "", fmt.Errorf("user alias is empty")
+	}
+
+	claims := &dto.Claims{
+		UserAlias: user.Alias,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Minute * 5)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   fmt.Sprintf("%d", userID),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(s.jwtSecret))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %v", err)
+	}
+
+	return tokenString, nil
+}
+
+func (s *PortalService) ValidateTokenAPI(tokenString string) (*dto.Claims, error) {
+	claims := &dto.Claims{}
+
+	s.jwtSecret = "PONTUPINWEMAPS"
+
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(s.jwtSecret), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("invalid token: %v", err)
+	}
+	if !token.Valid {
+		return nil, fmt.Errorf("token is not valid")
+	}
+	return claims, nil
 }

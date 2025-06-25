@@ -19,10 +19,12 @@ type AddressReport struct {
 }
 
 type ReportResume struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	CreatedAt   time.Time `json:"created_at"`
-	Direcciones int       `json:"direcciones"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	CreatedAt   time.Time   `json:"created_at"`
+	Status      int         `json:"status"`
+	Direcciones int         `json:"direcciones"`
+	Rows        []ReportRow `json:"rows"`
 }
 
 type ReportDetail struct {
