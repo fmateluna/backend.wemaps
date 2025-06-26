@@ -169,7 +169,7 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 
 		nok := 0
 		ok := 0
-		idReport := -1
+		reportID := -1
 
 		for index, address := range addressToGeoCoding {
 			geo, err := geolocationService.GetCoordsFromAddress(address)
@@ -214,16 +214,15 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Guardar en el portal
-			if idReport == -1 {
-				idReport, _ = s.saveToPortal(user.ID, geo, report.ReportName, infoReport, token, index)
-			}
+
+			reportID, _ = s.saveToPortal(user.ID, reportID, geo, report.ReportName, infoReport, token, index)
 
 			fmt.Println("Reporte:", report.ReportName, " Origen : ["+geo.Geocoder+"] Dirección:", geo.FormattedAddress)
 			// Enviar resultado al canal
 			gr := GeoReport{
 				Geo:      geo,
 				Index:    index,
-				IdReport: idReport,
+				IdReport: reportID,
 				IdUser:   user.ID,
 			}
 
@@ -236,7 +235,7 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 				//s.portalService.SetStatusReport(gr.IdUser, gr.IdReport, LOAD_ERROR)
 			}
 		}
-		s.portalService.SetStatusReport(user.ID, idReport, LOAD_FINISH)
+		s.portalService.SetStatusReport(user.ID, reportID, LOAD_FINISH)
 	}()
 
 	// Bucle principal para enviar datos al cliente
@@ -256,7 +255,7 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 			// Enviar datos al cliente
 			data, _ := json.Marshal(geo)
 			_, err := fmt.Fprintf(w, "data: %s\n\n", data)
-			time.Sleep(2 * time.Second)
+			time.Sleep(3 * time.Second)
 			if err != nil {
 				s.portalService.SetStatusReport(geo.IdUser, geo.IdReport, LOAD_ERROR)
 				return
@@ -270,7 +269,7 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) saveToPortal(userID int, geo domain.Geolocation, reportName string, infoReport map[string]string, token string, index int) (int, error) {
+func (s *Server) saveToPortal(userID, reportID int, geo domain.Geolocation, reportName string, infoReport map[string]string, token string, index int) (int, error) {
 	/*
 		found := false
 		for _, addr := range s.addressUnique {
@@ -283,7 +282,7 @@ func (s *Server) saveToPortal(userID int, geo domain.Geolocation, reportName str
 			s.addressUnique = append(s.addressUnique, geo.FormattedAddress)
 		}
 	*/
-	return s.portalService.SaveReportInfo(userID, reportName, infoReport, geo, token, index)
+	return s.portalService.SaveReportInfo(userID, reportID, reportName, infoReport, geo, token, index)
 }
 
 // sanitizeString limpia una cadena para que sea válida en JSON

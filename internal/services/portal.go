@@ -39,54 +39,55 @@ func (s *PortalService) InvalidateUserCache(userID int) {
 	cacheMgr.Delete(cacheMgr.reportSummaryCacheKey(userID))
 }
 
-func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) (int, error) {
-	var idReport int
+func (s *PortalService) SaveReportInfo(idUser int, reportID int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) (int, error) {
+
 	var err error
 
-	idReport, err = s.repository.SaveReportByIdUser(idUser, nameReport, hash)
-	if err != nil {
-		return -idReport, fmt.Errorf("failed to save report: %v", err)
+	if reportID == -1 {
+		reportID, err = s.repository.SaveReportByIdUser(idUser, nameReport, hash)
+		if err != nil {
+			return reportID, fmt.Errorf("failed to save report: %v", err)
+		}
 	}
-
 	s.InvalidateUserCache(idUser)
 
-	return idReport, s.saveReportDetails(idReport, infoReport, geo, index)
+	return reportID, s.saveReportDetails(reportID, infoReport, geo, index)
 }
 
 func (s *PortalService) SaveReportInfoCache(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) (int, error) {
 	cacheMgr := GetCacheManager()
 	cacheReportKey := cacheMgr.cacheKey(nameReport, hash)
-	var idReport int
+	var reportID int
 	var found bool
 
 	s.cacheMu.RLock()
-	idReport, found = s.cache[cacheReportKey]
+	reportID, found = s.cache[cacheReportKey]
 	s.cacheMu.RUnlock()
 
 	if !found {
 		var err error
-		idReport, err = s.repository.SaveReportByIdUser(idUser, nameReport, hash)
+		reportID, err = s.repository.SaveReportByIdUser(idUser, nameReport, hash)
 		if err != nil {
-			return -idReport, fmt.Errorf("failed to save report: %v", err)
+			return -reportID, fmt.Errorf("failed to save report: %v", err)
 		}
 
 		s.cacheMu.Lock()
-		s.cache[cacheReportKey] = idReport
+		s.cache[cacheReportKey] = reportID
 		s.cacheMu.Unlock()
 
 		s.InvalidateUserCache(idUser)
 	}
 
-	return idReport, s.saveReportDetails(idReport, infoReport, geo, index)
+	return reportID, s.saveReportDetails(reportID, infoReport, geo, index)
 }
 
-func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]string, geo domain.Geolocation, index int) error {
+func (s *PortalService) saveReportDetails(reportID int, infoReport map[string]string, geo domain.Geolocation, index int) error {
 	addressID := 0
 	var err error
 
 	if geo.Latitude != 0 && geo.Longitude != 0 {
 		addressID, err = s.repository.SaveAddress(
-			idReport, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
+			reportID, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to save address: %v", err)
@@ -94,13 +95,13 @@ func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]st
 	}
 
 	if addressID > 0 {
-		_, err = s.repository.SaveAddressInReport(idReport, addressID, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder)
+		_, err = s.repository.SaveAddressInReport(reportID, addressID, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder)
 		if err != nil {
 			return fmt.Errorf("error linking new address to report: %v", err)
 		}
 	}
 	go func() {
-		s.repository.SaveReportColumnByIdReport(idReport, addressID, infoReport, index)
+		s.repository.SaveReportColumnByIdReport(reportID, addressID, infoReport, index)
 	}()
 
 	return err

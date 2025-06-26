@@ -140,7 +140,7 @@ func (db *PortalRepository) LogSession(sessionID string, userID int, tokenString
 	log.Println("Session logged successfully %s", active)
 }
 
-func (db *PortalRepository) SaveAddress(idReport int, address string, latitude float64, longitude float64, formatAddress string, geocoder string) (int, error) {
+func (db *PortalRepository) SaveAddress(reportID int, address string, latitude float64, longitude float64, formatAddress string, geocoder string) (int, error) {
 	var addressID int
 	queryCheck := `SELECT id,address,normalized_address FROM address WHERE address = $1`
 	addressDB := ""
@@ -152,7 +152,7 @@ func (db *PortalRepository) SaveAddress(idReport int, address string, latitude f
 			updateQuery := `UPDATE address SET address = $1, normalized_address = $2, latitude = $3, longitude = $4, geocoder = $5 WHERE id = $6`
 			_, err = db.Exec(updateQuery, address, formatAddress, latitude, longitude, geocoder, addressID)
 		} else {
-			_, err = db.SaveAddressInReport(idReport, addressID, latitude, longitude, formatAddress, geocoder)
+			_, err = db.SaveAddressInReport(reportID, addressID, latitude, longitude, formatAddress, geocoder)
 			if err != nil {
 				return addressID, fmt.Errorf("error linking existing address to report: %v", err)
 			}
@@ -175,11 +175,11 @@ func (db *PortalRepository) SaveAddress(idReport int, address string, latitude f
 	return addressID, nil
 }
 
-func (db *PortalRepository) SaveAddressInReport(idReport int, addressID int, latitude float64, longitude float64, formatAddress string, geocoder string) (int, error) {
+func (db *PortalRepository) SaveAddressInReport(reportID int, addressID int, latitude float64, longitude float64, formatAddress string, geocoder string) (int, error) {
 
 	linkQuery := `INSERT INTO report_address (report_id, address_id)
 				  VALUES ($1, $2)`
-	_, err := db.Exec(linkQuery, idReport, addressID)
+	_, err := db.Exec(linkQuery, reportID, addressID)
 	if err != nil {
 		log.Printf("error linking address to report: %v", err)
 		return addressID, fmt.Errorf("error linking address to report: %v", err)
@@ -188,12 +188,12 @@ func (db *PortalRepository) SaveAddressInReport(idReport int, addressID int, lat
 	return addressID, nil
 }
 
-func (db *PortalRepository) SaveReportColumnByIdReport(idReport int, addressID int, infoReport map[string]string, index int) (int, error) {
+func (db *PortalRepository) SaveReportColumnByIdReport(reportID int, addressID int, infoReport map[string]string, index int) (int, error) {
 	count := 0
 	for name, value := range infoReport {
 		query := `INSERT INTO report_column (report_id, id_address, name, value,index_column)
 				  VALUES ($1, $2, $3 , $4 , $5)`
-		result, err := db.Exec(query, idReport, addressID, name, value, index)
+		result, err := db.Exec(query, reportID, addressID, name, value, index)
 		if err != nil {
 			log.Printf("error saving report column: %v", err)
 			return count, fmt.Errorf("error saving report column: %v", err)
