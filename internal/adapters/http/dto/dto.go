@@ -34,8 +34,11 @@ type ReportDetail struct {
 }
 
 type ReportSummary struct {
-	ReportID   int    `json:"report_id"`
-	ReportName string `json:"report_name"`
+	ReportID   int         `json:"report_id"`
+	ReportName string      `json:"report_name"`
+	Name       string      `json:"name"`
+	Rows       []ReportRow `json:"rows"`
+	TotalRows  int         `json:"totalRows"`
 }
 
 type ReportRow struct {

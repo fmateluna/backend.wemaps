@@ -19,7 +19,7 @@ type PortalRepository interface {
 	GetAddressInfoByUserId(userID int) ([]dto.AddressReport, error)
 	GetReportSummaryByUserId(userID int) ([]dto.ReportResume, error)
 	GetReportByReportUserID(userID, reportID int) (dto.ReportResume, error)
-	GetReportRowsByReportID(reportID int) ([]dto.ReportRow, error)
+	GetReportRowsByReportID(reportID int, page int, pageSize int) ([]dto.ReportRow, int, error)
 	GetTotalReportsAndAddress(userID int) ([]dto.CategoryCount, error)
 	GetAddressInfoByUserIdPeerPage(userID int, query string, limit, offset int) ([]dto.AddressReport, int, error)
 	FindAddress(address string) (dto.WeMapsAddress, error)

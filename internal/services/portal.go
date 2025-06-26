@@ -40,6 +40,20 @@ func (s *PortalService) InvalidateUserCache(userID int) {
 }
 
 func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) (int, error) {
+	var idReport int
+	var err error
+
+	idReport, err = s.repository.SaveReportByIdUser(idUser, nameReport, hash)
+	if err != nil {
+		return -idReport, fmt.Errorf("failed to save report: %v", err)
+	}
+
+	s.InvalidateUserCache(idUser)
+
+	return idReport, s.saveReportDetails(idReport, infoReport, geo, index)
+}
+
+func (s *PortalService) SaveReportInfoCache(idUser int, nameReport string, infoReport map[string]string, geo domain.Geolocation, hash string, index int) (int, error) {
 	cacheMgr := GetCacheManager()
 	cacheReportKey := cacheMgr.cacheKey(nameReport, hash)
 	var idReport int
@@ -68,26 +82,13 @@ func (s *PortalService) SaveReportInfo(idUser int, nameReport string, infoReport
 
 func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]string, geo domain.Geolocation, index int) error {
 	addressID := 0
-	cacheMgr := GetCacheManager()
-	cacheAddressKey := cacheMgr.cacheKey(geo.OriginAddress, geo.FormattedAddress)
 	var err error
 
-	s.cacheMu.RLock()
-	var found bool
-	addressID, found = s.cache[cacheAddressKey]
-	s.cacheMu.RUnlock()
-
-	if !found {
-		addressID, err = s.repository.SaveAddress(
-			idReport, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to save address: %v", err)
-		}
-
-		s.cacheMu.Lock()
-		s.cache[cacheAddressKey] = addressID
-		s.cacheMu.Unlock()
+	addressID, err = s.repository.SaveAddress(
+		idReport, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save address: %v", err)
 	}
 
 	if addressID > 0 {
@@ -271,11 +272,13 @@ func (s *PortalService) GetReportSummaryByUserId(userID int) ([]dto.ReportResume
 	return summaries, nil
 }
 
-func (s *PortalService) GetReportRowsByReportID(reportID int) ([]dto.ReportRow, error) {
-	rows, err := s.repository.GetReportRowsByReportID(reportID)
-	return rows, err
+func (s *PortalService) GetReportRowsByReportID(reportID int, page int, pageSize int) ([]dto.ReportRow, int, error) {
+	rows, totalRows, err := s.repository.GetReportRowsByReportID(reportID, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, totalRows, nil
 }
-
 func (s *PortalService) GetTotalReportsAndAddress(userID int) ([]dto.CategoryCount, error) {
 	totales, err := s.repository.GetTotalReportsAndAddress(userID)
 	return totales, err

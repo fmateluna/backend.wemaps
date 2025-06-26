@@ -146,7 +146,7 @@ func (s *Server) reportRowsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Obtener el parámetro report_id de la query string
+	// Obtener parámetros de la query string
 	reportIDStr := r.URL.Query().Get("report_id")
 	if reportIDStr == "" {
 		http.Error(w, "Missing report_id parameter", http.StatusBadRequest)
@@ -158,21 +158,43 @@ func (s *Server) reportRowsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	report, err := s.portalService.GetReportByReportUserID(user.ID, reportID)
-	if err == nil {
-		// Obtener los datos del reporte
-		rows, err := s.portalService.GetReportRowsByReportID(reportID)
-		if err != nil {
-			log.Printf("Error fetching report rows: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+	pageStr := r.URL.Query().Get("page")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 0 {
+		page = 0 // Página por defecto
+	}
 
-		report.Rows = rows
+	pageSizeStr := r.URL.Query().Get("page_size")
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize <= 0 {
+		pageSize = 10 // Tamaño de página por defecto
+	}
+
+	// Obtener el reporte y las filas con paginación
+	report, err := s.portalService.GetReportByReportUserID(user.ID, reportID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error fetching report: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rows, totalRows, err := s.portalService.GetReportRowsByReportID(reportID, page, pageSize)
+	if err != nil {
+		log.Printf("Error fetching report rows: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Construir la respuesta
+	response := dto.ReportSummary{
+		ReportName: report.Name,
+		ReportID:   reportID,
+		Name:       report.Name,
+		Rows:       rows,
+		TotalRows:  totalRows,
 	}
 
 	// Retornar un array vacío si no hay resultados
-	if len(report.Rows) == 0 {
+	if len(rows) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(dto.ReportSummary{})
 		return
@@ -180,7 +202,7 @@ func (s *Server) reportRowsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Enviar la respuesta JSON
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(report); err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("Error encoding response: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}

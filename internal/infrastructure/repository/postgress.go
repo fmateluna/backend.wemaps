@@ -325,6 +325,7 @@ func (db PortalRepository) GetReportSummaryByUserId(userID int) ([]dto.ReportRes
 			r.id,
             r."name",
             r.created_at
+		order by  r.created_at desc
     `
 
 	rows, err := db.Query(query, userID)
@@ -352,7 +353,23 @@ func (db PortalRepository) GetReportSummaryByUserId(userID int) ([]dto.ReportRes
 	return summaries, nil
 }
 
-func (db PortalRepository) GetReportRowsByReportID(reportID int) ([]dto.ReportRow, error) {
+func (db PortalRepository) GetReportRowsByReportID(reportID int, page int, pageSize int) ([]dto.ReportRow, int, error) {
+	// Consulta para contar el total de filas
+	countQuery := `
+        SELECT COUNT(DISTINCT rc.index_column)
+        FROM report r
+        LEFT JOIN report_column rc ON r.id = rc.report_id
+        WHERE r.id = $1
+    `
+	var totalRows int
+	err := db.QueryRow(countQuery, reportID).Scan(&totalRows)
+	if err != nil {
+		log.Printf("Error counting report rows: %v", err)
+		return nil, 0, err
+
+	}
+
+	// Consulta para obtener las filas paginadas
 	query := `
         SELECT 
             rc.index_column,
@@ -362,12 +379,13 @@ func (db PortalRepository) GetReportRowsByReportID(reportID int) ([]dto.ReportRo
         WHERE r.id = $1
         GROUP BY rc.index_column
         ORDER BY rc.index_column
+        LIMIT $2 OFFSET $3
     `
 
-	rows, err := db.Query(query, reportID)
+	rows, err := db.Query(query, reportID, pageSize, page*pageSize)
 	if err != nil {
 		log.Printf("Error querying report rows: %v", err)
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -383,20 +401,19 @@ func (db PortalRepository) GetReportRowsByReportID(reportID int) ([]dto.ReportRo
 		)
 		if err != nil {
 			log.Printf("Error scanning row: %v", err)
-			return nil, err
+			return nil, 0, err
 		}
 
 		if err := json.Unmarshal(filaJSON, &row.FilaTranspuesta); err != nil {
 			log.Printf("Error unmarshaling fila_transpuesta: %v", err)
-			return nil, err
+			return nil, 0, err
 		}
 
 		reportRows = append(reportRows, row)
 	}
 
-	return reportRows, nil
+	return reportRows, totalRows, nil
 }
-
 func (db *PortalRepository) GetTotalReportsAndAddress(userID int) ([]dto.CategoryCount, error) {
 	query := `
         SELECT 
