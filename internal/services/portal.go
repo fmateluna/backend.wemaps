@@ -84,11 +84,13 @@ func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]st
 	addressID := 0
 	var err error
 
-	addressID, err = s.repository.SaveAddress(
-		idReport, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to save address: %v", err)
+	if geo.Latitude != 0 && geo.Longitude != 0 {
+		addressID, err = s.repository.SaveAddress(
+			idReport, geo.OriginAddress, geo.Latitude, geo.Longitude, geo.FormattedAddress, geo.Geocoder,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to save address: %v", err)
+		}
 	}
 
 	if addressID > 0 {
@@ -97,13 +99,11 @@ func (s *PortalService) saveReportDetails(idReport int, infoReport map[string]st
 			return fmt.Errorf("error linking new address to report: %v", err)
 		}
 	}
+	go func() {
+		s.repository.SaveReportColumnByIdReport(idReport, addressID, infoReport, index)
+	}()
 
-	_, err = s.repository.SaveReportColumnByIdReport(idReport, addressID, infoReport, index)
-	if err != nil {
-		return fmt.Errorf("failed to save report columns: %v", err)
-	}
-
-	return nil
+	return err
 }
 
 func (s *PortalService) ValidateToken(token string) (*dto.UserPortal, error) {

@@ -214,8 +214,9 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Guardar en el portal
-
-			idReport, _ = s.saveToPortal(user.ID, geo, report.ReportName, infoReport, token, index)
+			if idReport == -1 {
+				idReport, _ = s.saveToPortal(user.ID, geo, report.ReportName, infoReport, token, index)
+			}
 
 			fmt.Println("Reporte:", report.ReportName, " Origen : ["+geo.Geocoder+"] Dirección:", geo.FormattedAddress)
 			// Enviar resultado al canal
