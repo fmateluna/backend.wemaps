@@ -235,6 +235,7 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 				//s.portalService.SetStatusReport(gr.IdUser, gr.IdReport, LOAD_ERROR)
 			}
 		}
+		s.addressUnique = []string{}
 		s.portalService.SetStatusReport(user.ID, reportID, LOAD_FINISH)
 	}()
 
@@ -246,7 +247,7 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 				// Procesamiento completado
 				_, err := fmt.Fprintf(w, "data: {\"status\": \"done\"}\n\n")
 				if err == nil {
-					s.portalService.SetStatusReport(geo.IdUser, geo.IdReport, LOAD_FINISH)
+					go s.portalService.SetStatusReport(geo.IdUser, geo.IdReport, LOAD_FINISH)
 					time.Sleep(2 * time.Second)
 					flusher.Flush()
 				}
@@ -270,18 +271,18 @@ func (s *Server) getCoordsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) saveToPortal(userID, reportID int, geo domain.Geolocation, reportName string, infoReport map[string]string, token string, index int) (int, error) {
-	/*
-		found := false
-		for _, addr := range s.addressUnique {
-			if addr == geo.FormattedAddress {
-				found = true
-				break
-			}
+
+	found := false
+	for _, addr := range s.addressUnique {
+		if addr == geo.FormattedAddress {
+			found = true
+			break
 		}
-		if !found {
-			s.addressUnique = append(s.addressUnique, geo.FormattedAddress)
-		}
-	*/
+	}
+	if !found {
+		s.addressUnique = append(s.addressUnique, geo.FormattedAddress)
+	}
+
 	return s.portalService.SaveReportInfo(userID, reportID, reportName, infoReport, geo, token, index)
 }
 
