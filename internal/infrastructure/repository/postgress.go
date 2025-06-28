@@ -46,7 +46,7 @@ func NewPostgresDBRepository() (*PortalRepository, error) {
 
 	password := os.Getenv("POSTGRES_PASSWORD")
 	if password == "" {
-		password = "iddqd"
+		password = ""
 		log.Println("POSTGRES_PASSWORD no definido, usando valor por defecto")
 	}
 
@@ -117,12 +117,12 @@ func (db *PortalRepository) GetUserID(alias string) (int, error) {
 	return userID, nil
 }
 
-func (db *PortalRepository) CreateUser(email, alias, fullName, phone string) (int, error) {
+func (db *PortalRepository) CreateUser(email, alias, fullName, phone, provider string) (int, error) {
 	var userID int
-	query := `INSERT INTO users (email, alias, full_name, phone)
-			  VALUES ($1, $2, $3, $4)
+	query := `INSERT INTO users (email, alias, full_name, phone,provider)
+			  VALUES ($1, $2, $3, $4,$5)
 			  RETURNING id`
-	err := db.QueryRow(query, email, alias, fullName, phone).Scan(&userID)
+	err := db.QueryRow(query, email, alias, fullName, phone, provider).Scan(&userID)
 	if err != nil {
 		return 0, fmt.Errorf("error creating user: %v", err)
 	}

@@ -31,7 +31,7 @@ func (s *Server) logInHandler(w http.ResponseWriter, r *http.Request) {
 
 	if errorNoID != nil || id == -1 {
 		//Usuario no existe, lo creo
-		id, err = s.portalService.CreateUser(user.Alias, user.Email, user.FullName, user.Phone)
+		id, err = s.portalService.CreateUser(user.Alias, user.Email, user.FullName, user.Phone, user.Provider)
 	}
 
 	ipAddress := r.RemoteAddr

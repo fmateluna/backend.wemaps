@@ -57,4 +57,5 @@ type UserPortal struct {
 	Alias    string
 	FullName string
 	Phone    string
+	Provider string
 }

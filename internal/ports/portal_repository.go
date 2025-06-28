@@ -8,7 +8,7 @@ import (
 
 type PortalRepository interface {
 	GetUserID(alias string) (int, error)
-	CreateUser(email, alias, fullName, phone string) (int, error)
+	CreateUser(email, alias, fullName, phone, provider string) (int, error)
 	LogSession(sessionID string, userID int, tokenString string, ipAddress string, expiresAt time.Time, active bool)
 	FindUserByToken(token string) (*repository.User, error)
 	FindUserByID(userID int) (*repository.User, error)

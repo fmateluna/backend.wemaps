@@ -125,8 +125,8 @@ func (s *PortalService) ValidateToken(token string) (*dto.UserPortal, error) {
 	return user, nil
 }
 
-func (s *PortalService) CreateUser(alias string, email string, name string, phone string) (int, error) {
-	id, err := s.repository.CreateUser(alias, email, name, phone)
+func (s *PortalService) CreateUser(alias, email, name, phone, provider string) (int, error) {
+	id, err := s.repository.CreateUser(alias, email, name, phone, provider)
 	if err != nil {
 		fmt.Println("Error al crear el usuario:", err)
 		return -1, err
@@ -137,7 +137,7 @@ func (s *PortalService) CreateUser(alias string, email string, name string, phon
 
 func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.RequestLogin) (*dto.UserPortal, error) {
 	var user dto.UserPortal
-
+	user.Provider = request.Provider
 	if request.Provider == "google.com" {
 		var fmtinGoogle dto.LoginGoogle
 
@@ -168,6 +168,41 @@ func (s *PortalService) IdentificoTipoLogIn(ctx context.Context, request dto.Req
 		user.Phone = ""
 		if len(fmtinGoogle.User.ProviderData) > 0 && fmtinGoogle.User.ProviderData[0].PhoneNumber != nil {
 			if phone, ok := fmtinGoogle.User.ProviderData[0].PhoneNumber.(string); ok {
+				user.Phone = phone
+			}
+		}
+	}
+
+	if request.Provider == "microsoft.com" {
+		var fmtinMicrosoft dto.LoginMicrosoft
+
+		if responseBytes, ok := request.Response.(string); ok {
+			err := json.Unmarshal([]byte(responseBytes), &fmtinMicrosoft)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal Google fmtin response: %w", err)
+			}
+		} else if responseMap, ok := request.Response.(map[string]interface{}); ok {
+			bytes, err := json.Marshal(responseMap)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal response map: %w", err)
+			}
+			err = json.Unmarshal(bytes, &fmtinMicrosoft)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal response to fmtinGoogle: %w", err)
+			}
+		} else {
+			fmtinMicrosoft, ok = request.Response.(dto.LoginMicrosoft)
+			if !ok {
+				return nil, errors.New("invalid response type for Google fmtin")
+			}
+		}
+
+		user.Alias = fmtinMicrosoft.User.Email
+		user.Email = fmtinMicrosoft.User.Email
+		user.FullName = fmtinMicrosoft.User.DisplayName
+		user.Phone = ""
+		if len(fmtinMicrosoft.User.ProviderDataMS) > 0 && fmtinMicrosoft.User.ProviderDataMS[0].PhoneNumber != nil {
+			if phone, ok := fmtinMicrosoft.User.ProviderDataMS[0].PhoneNumber.(string); ok {
 				user.Phone = phone
 			}
 		}
