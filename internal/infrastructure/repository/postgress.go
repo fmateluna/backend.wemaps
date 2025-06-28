@@ -476,9 +476,9 @@ func (db PortalRepository) GetAddressInfoByUserIdPeerPage(userID int, query stri
 		defer wg.Done()
 		countQuery := `
             SELECT COUNT(DISTINCT a.id)
-            FROM address a
-            INNER JOIN report_address ra ON ra.address_id = a.id
-            INNER JOIN report r ON ra.report_id = r.id
+            FROM public.address a
+            INNER JOIN public.report_address ra ON ra.address_id = a.id
+            INNER JOIN public.report r ON ra.report_id = r.id
             WHERE r.author = $1
             AND (
                 $2 = ''
@@ -486,13 +486,12 @@ func (db PortalRepository) GetAddressInfoByUserIdPeerPage(userID int, query stri
                 OR a.normalized_address ILIKE '%' || $2 || '%'
             )
         `
-		errCount = db.QueryRow(countQuery, userID, query).Scan(&total)
+		errCount = db.DB.QueryRow(countQuery, userID, query).Scan(&total)
 		if errCount != nil {
 			log.Printf("Error counting addresses: %v", errCount)
 		}
 	}()
 
-	// Goroutine para obtener las direcciones
 	go func() {
 		defer wg.Done()
 		querySQL := `
@@ -507,33 +506,37 @@ func (db PortalRepository) GetAddressInfoByUserIdPeerPage(userID int, query stri
                         SELECT json_agg(attrs)
                         FROM (
                             SELECT json_build_object(
-                                'atributos', json_object_agg(rc.name, rc.value)
+                                'atributos', json_object_agg(coalesce(rc.name, ''), coalesce(rc.value, ''))
                             ) AS attrs
-                            FROM report_column rc
-                            INNER JOIN report_address ra2 ON ra2.report_id = rc.report_id
-                            WHERE ra2.address_id = a.id
-                            GROUP BY rc.report_id
+                            FROM public.report_address ra2
+                            JOIN public.report r2 ON ra2.report_id = r2.id
+                            LEFT JOIN public.report_column rc ON rc.report_id = r2.id
+                            WHERE ra2.address_id = a.id 
+                            AND r2.author = $1
+                            GROUP BY r2.id
                         ) sub
                     ),
                     '[]'
                 ) AS atributos_relacionados,
                 COALESCE(
                     (
-                        SELECT json_agg(
-                            json_build_object(
-                                'report_id', r2.id,
-                                'report_name', r2.name
-                            )
-                        )
-                        FROM report r2
-                        INNER JOIN report_address ra2 ON ra2.report_id = r2.id
-                        WHERE ra2.address_id = a.id
+                        SELECT json_agg(json_build_object(
+                            'report_id', r2.id,
+                            'report_name', r2.name
+                        ))
+                        FROM public.report r2
+                        JOIN (
+                            SELECT DISTINCT report_id
+                            FROM public.report_address
+                            WHERE address_id = a.id
+                        ) ra2 ON ra2.report_id = r2.id
+                        WHERE r2.author = $1
                     ),
                     '[]'
                 ) AS reportes
-            FROM address a
-            INNER JOIN report_address ra ON ra.address_id = a.id
-            INNER JOIN report r ON ra.report_id = r.id
+            FROM public.address a
+            JOIN public.report_address ra ON ra.address_id = a.id
+            JOIN public.report r ON ra.report_id = r.id
             WHERE r.author = $1
             AND (
                 $2 = ''
@@ -545,7 +548,7 @@ func (db PortalRepository) GetAddressInfoByUserIdPeerPage(userID int, query stri
             LIMIT $3 OFFSET $4
         `
 
-		rows, err := db.Query(querySQL, userID, query, limit, offset)
+		rows, err := db.DB.Query(querySQL, userID, query, limit, offset)
 		if err != nil {
 			log.Printf("Error querying addresses: %v", err)
 			errQuery = err
@@ -574,19 +577,33 @@ func (db PortalRepository) GetAddressInfoByUserIdPeerPage(userID int, query stri
 				return
 			}
 
-			if err := json.Unmarshal(atributosJSON, &addr.AtributosRelacionados); err != nil {
-				log.Printf("Error unmarshaling atributos: %v", err)
-				errQuery = err
-				return
+			if atributosJSON != nil {
+				if err := json.Unmarshal(atributosJSON, &addr.AtributosRelacionados); err != nil {
+					log.Printf("Error unmarshaling atributos: %v", err)
+					errQuery = err
+					return
+				}
+			} else {
+				addr.AtributosRelacionados = []dto.ReportDetail{}
 			}
 
-			if err := json.Unmarshal(reportesJSON, &addr.Reportes); err != nil {
-				log.Printf("Error unmarshaling reportes: %v", err)
-				errQuery = err
-				return
+			if reportesJSON != nil {
+				if err := json.Unmarshal(reportesJSON, &addr.Reportes); err != nil {
+					log.Printf("Error unmarshaling reportes: %v", err)
+					errQuery = err
+					return
+				}
+			} else {
+				addr.Reportes = []dto.ReportSummary{}
 			}
 
 			addresses = append(addresses, addr)
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Printf("Error iterating rows: %v", err)
+			errQuery = err
+			return
 		}
 	}()
 
